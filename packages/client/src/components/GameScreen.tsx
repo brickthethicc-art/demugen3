@@ -1,0 +1,37 @@
+import { GameBoard } from './GameBoard.js';
+import { GameHUD } from './GameHUD.js';
+import { BenchUnits } from './BenchUnits.js';
+import { HoverPanel } from './HoverPanel.js';
+import { MainDeckPile } from './MainDeckPile.js';
+import { DiscardPile } from './DiscardPile.js';
+import { UnitActionMenu } from './UnitActionMenu.js';
+
+export function GameScreen() {
+  return (
+    <div data-testid="game-screen" className="min-h-screen bg-mugen-bg flex">
+      <HoverPanel />
+      <div className="flex-1 flex flex-col items-center">
+        <div className="flex items-start justify-end pt-8 pr-32 w-full -mt-[15px]">
+          <GameBoard />
+        </div>
+        <div className="flex justify-center pr-32 w-full items-start relative">
+          {/* Hand section placeholder (left side) */}
+          <div className="flex-1" />
+          
+          {/* Deck & Discard piles (locked in place) */}
+          <div className="absolute flex flex-col gap-2 -mt-[181px]" style={{ right: '875px' }}>
+            <DiscardPile />
+            <MainDeckPile />
+          </div>
+          
+          {/* Bench (centered) */}
+          <div className="absolute" style={{ right: '203px', top: '5px' }}>
+            <BenchUnits />
+          </div>
+        </div>
+      </div>
+      <GameHUD />
+      <UnitActionMenu />
+    </div>
+  );
+}

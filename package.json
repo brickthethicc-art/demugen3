@@ -1,0 +1,16 @@
+{
+  "name": "mugen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mugen — Online Multiplayer Strategy Card Game",
+  "scripts": {
+    "test": "pnpm -r test",
+    "test:watch": "pnpm -r test:watch",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "build": "pnpm -r build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
