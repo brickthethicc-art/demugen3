@@ -50,7 +50,7 @@ export interface Hand {
 }
 
 export const MAX_DECK_SIZE = 16;
-export const MAX_HAND_SIZE = 4;
+export const MAX_HAND_SIZE = 5;
 export const MAX_TEAM_SIZE = 6;
 export const ACTIVE_UNIT_COUNT = 3;
 export const RESERVE_UNIT_COUNT = 3;

@@ -9,6 +9,7 @@ export enum GamePhase {
 }
 
 export enum TurnPhase {
+  STANDBY = 'STANDBY',
   MOVE = 'MOVE',
   ABILITY = 'ABILITY',
   ATTACK = 'ATTACK',

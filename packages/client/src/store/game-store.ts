@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import type { GameState, Position, Card, UnitInstance, UnitCard } from '@mugen/shared';
+import type { AbilityTarget } from '@mugen/shared/src/engines/ability/index.js';
+import type { AttackTarget } from '@mugen/shared/src/engines/combat/index.js';
+import { MAX_HAND_SIZE } from '@mugen/shared';
 import { getVisibleUnits } from '@mugen/shared/src/engines/visibility/index.js';
 
 export type Screen = 'main-menu' | 'deck-builder' | 'card-library' | 'deck-select' | 'lobby' | 'pregame' | 'game' | 'gameover';
@@ -21,13 +24,32 @@ export interface GameStore {
   // Game state
   gameState: GameState | null;
   selectedUnitId: string | null;
+  moveModeActive: boolean;
+  menuHiddenDuringMove: boolean;
   validMoves: Position[];
+  abilityModeActive: boolean;
+  abilityTargets: AbilityTarget[];
+  attackModeActive: boolean;
+  attackTargets: AttackTarget[];
+  deploymentModeActive: boolean;
+  selectedBenchUnit: UnitCard | null;
   hoveredCard: Card | null;
+  hoveredUnitInstance: UnitInstance | null;
   activeUnits: UnitInstance[];
   benchUnits: UnitCard[];
   mainDeck: Card[];
   discardPile: Card[];
   error: string | null;
+
+  // Hand limit enforcement
+  handLimitNotification: boolean;
+  handLimitModalOpen: boolean;
+
+  // Queue/Ready state
+  isPlayerReady: boolean;
+  readyPlayersCount: number;
+  totalPlayersCount: number;
+  isWaitingForOthers: boolean;
 
   // Actions
   setPlayerId: (id: string) => void;
@@ -37,12 +59,27 @@ export interface GameStore {
   setLobbyPlayers: (players: { id: string; name: string; isReady: boolean }[]) => void;
   setGameState: (state: GameState) => void;
   selectUnit: (unitId: string | null) => void;
+  enterMoveMode: () => void;
+  exitMoveMode: () => void;
+  hideMenuDuringMove: () => void;
+  showMenuDuringMove: () => void;
   setValidMoves: (moves: Position[]) => void;
   clearValidMoves: () => void;
+  enterAbilityMode: () => void;
+  exitAbilityMode: () => void;
+  setAbilityTargets: (targets: AbilityTarget[]) => void;
+  clearAbilityTargets: () => void;
+  enterAttackMode: () => void;
+  exitAttackMode: () => void;
+  setAttackTargets: (targets: AttackTarget[]) => void;
+  clearAttackTargets: () => void;
+  enterDeploymentMode: (benchUnit: UnitCard) => void;
+  exitDeploymentMode: () => void;
+  setSelectedBenchUnit: (unit: UnitCard | null) => void;
   setSelectedDeck: (deck: Card[] | null) => void;
   setStartingUnits: (units: UnitCard[]) => void;
   confirmStartingUnits: () => void;
-  setHoveredCard: (card: Card | null) => void;
+  setHoveredCard: (card: Card | null, unitInstance?: UnitInstance | null) => void;
   clearHoveredCard: () => void;
   setActiveUnits: (units: UnitInstance[]) => void;
   setBenchUnits: (units: UnitCard[]) => void;
@@ -50,6 +87,10 @@ export interface GameStore {
   setDiscardPile: (cards: Card[]) => void;
   setError: (error: string | null) => void;
   clearError: () => void;
+  showHandLimitNotification: () => void;
+  openHandLimitModal: () => void;
+  closeHandLimitModal: () => void;
+  setQueueStatus: (isReady: boolean, readyCount: number, totalCount: number, waiting: boolean) => void;
   reset: () => void;
 }
 
@@ -63,13 +104,28 @@ const initialState = {
   startingUnits: [],
   gameState: null,
   selectedUnitId: null,
+  moveModeActive: false,
+  menuHiddenDuringMove: false,
   validMoves: [],
+  abilityModeActive: false,
+  abilityTargets: [],
+  attackModeActive: false,
+  attackTargets: [],
+  deploymentModeActive: false,
+  selectedBenchUnit: null,
   hoveredCard: null,
+  hoveredUnitInstance: null,
   activeUnits: [],
   benchUnits: [],
   mainDeck: [],
   discardPile: [],
   error: null,
+  handLimitNotification: false,
+  handLimitModalOpen: false,
+  isPlayerReady: false,
+  readyPlayersCount: 0,
+  totalPlayersCount: 0,
+  isWaitingForOthers: false,
 };
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -118,9 +174,40 @@ export const useGameStore = create<GameStore>((set, get) => ({
         mainDeck: playerMainDeck,
         discardPile: playerDiscardPile,
       });
+
+      // Hand limit detection: trigger notification → modal flow
+      const handSize = currentPlayer?.hand.cards.length ?? 0;
+      if (handSize > MAX_HAND_SIZE && !get().handLimitModalOpen && !get().handLimitNotification) {
+        set({ handLimitNotification: true });
+      }
     }
   },
-  selectUnit: (unitId) => set({ selectedUnitId: unitId }),
+  selectUnit: (unitId) => set({ selectedUnitId: unitId, moveModeActive: false, menuHiddenDuringMove: false, validMoves: [], abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [] }),
+  enterMoveMode: () => set({ moveModeActive: true, abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [] }),
+  exitMoveMode: () => set({ moveModeActive: false, menuHiddenDuringMove: false, validMoves: [] }),
+  enterAbilityMode: () => set({ abilityModeActive: true, moveModeActive: false, validMoves: [], attackModeActive: false, attackTargets: [] }),
+  exitAbilityMode: () => set({ abilityModeActive: false, abilityTargets: [] }),
+  setAbilityTargets: (targets) => set({ abilityTargets: targets }),
+  clearAbilityTargets: () => set({ abilityTargets: [] }),
+  enterAttackMode: () => set({ attackModeActive: true, moveModeActive: false, validMoves: [], abilityModeActive: false, abilityTargets: [] }),
+  exitAttackMode: () => set({ attackModeActive: false, attackTargets: [] }),
+  setAttackTargets: (targets) => set({ attackTargets: targets }),
+  clearAttackTargets: () => set({ attackTargets: [] }),
+  enterDeploymentMode: (benchUnit) => set({ 
+    deploymentModeActive: true, 
+    selectedBenchUnit: benchUnit,
+    moveModeActive: false, 
+    abilityModeActive: false, 
+    abilityTargets: [], 
+    attackModeActive: false, 
+    attackTargets: [],
+    selectedUnitId: null,
+    validMoves: []
+  }),
+  exitDeploymentMode: () => set({ deploymentModeActive: false, selectedBenchUnit: null }),
+  setSelectedBenchUnit: (unit) => set({ selectedBenchUnit: unit }),
+  hideMenuDuringMove: () => set({ menuHiddenDuringMove: true }),
+  showMenuDuringMove: () => set({ menuHiddenDuringMove: false }),
   setValidMoves: (moves) => set({ validMoves: moves }),
   clearValidMoves: () => set({ validMoves: [] }),
   setSelectedDeck: (deck) => {
@@ -165,13 +252,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
       confirmStartingUnits(startingUnits);
     });
   },
-    setHoveredCard: (card) => set({ hoveredCard: card }),
-  clearHoveredCard: () => set({ hoveredCard: null }),
+    setHoveredCard: (card, unitInstance) => set({ hoveredCard: card, hoveredUnitInstance: unitInstance ?? null }),
+  clearHoveredCard: () => set({ hoveredCard: null, hoveredUnitInstance: null }),
   setActiveUnits: (units) => set({ activeUnits: units }),
   setBenchUnits: (units) => set({ benchUnits: units }),
   setMainDeck: (cards) => set({ mainDeck: cards }),
   setDiscardPile: (cards) => set({ discardPile: cards }),
   setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
+  showHandLimitNotification: () => set({ handLimitNotification: true }),
+  openHandLimitModal: () => set({ handLimitNotification: false, handLimitModalOpen: true }),
+  closeHandLimitModal: () => set({ handLimitModalOpen: false }),
+  setQueueStatus: (isReady, readyCount, totalCount, waiting) => set({ 
+    isPlayerReady: isReady, 
+    readyPlayersCount: readyCount, 
+    totalPlayersCount: totalCount, 
+    isWaitingForOthers: waiting 
+  }),
   reset: () => set(initialState),
 }));

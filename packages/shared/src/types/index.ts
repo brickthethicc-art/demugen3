@@ -48,6 +48,10 @@ export {
   MAX_PLAYERS,
   MAX_MOVES_PER_TURN,
 } from './game.js';
+
+export type {
+  StandbyPhaseStatus,
+} from '../engines/standby/index.js';
 export type {
   GameState,
 } from './game.js';
@@ -64,6 +68,7 @@ export type {
   LockTeamIntent,
   AdvancePhaseIntent,
   DeployReserveIntent,
+  DiscardCardIntent,
   ClientIntent,
   ActionResult,
   Result,

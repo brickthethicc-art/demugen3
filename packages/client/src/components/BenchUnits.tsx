@@ -1,10 +1,22 @@
 import { useGameStore } from '../store/game-store.js';
 import { useUnitHover } from '../hooks/useUnitHover.js';
+import { TurnPhase } from '@mugen/shared';
 import type { UnitCard } from '@mugen/shared';
 
 export function BenchUnits() {
   const benchUnits = useGameStore(state => state.benchUnits);
+  const gameState = useGameStore(state => state.gameState);
+  const playerId = useGameStore(state => state.playerId);
   const { handleMouseEnter, handleMouseLeave } = useUnitHover();
+  const { enterDeploymentMode } = useGameStore();
+
+  // Check if it's the player's turn and they can deploy reserves
+  const isMyTurn = gameState?.players[gameState.currentPlayerIndex]?.id === playerId;
+  const canDeploy = isMyTurn && gameState?.turnPhase !== TurnPhase.STANDBY;
+  
+  // Find the current player to check reserve lock
+  const currentPlayer = gameState?.players.find(p => p.id === playerId);
+  const reserveLocked = currentPlayer?.reserveLockedUntilNextTurn ?? false;
 
   if (benchUnits.length === 0) {
     return (
@@ -27,9 +39,19 @@ export function BenchUnits() {
           <div
             key={unit.id}
             data-testid="bench-unit"
-            className="bg-gray-800 border border-white/20 rounded p-3 cursor-pointer hover:bg-gray-700 hover:border-red-500 transition-colors w-[136px] h-[184px]"
+            className={`bg-gray-800 border rounded p-3 transition-colors w-[136px] h-[184px] ${
+              canDeploy && !reserveLocked
+                ? 'cursor-pointer hover:bg-gray-700 hover:border-green-500 border-white/20'
+                : 'cursor-not-allowed opacity-50 border-gray-600'
+            }`}
             onMouseEnter={() => handleMouseEnter(unit)}
             onMouseLeave={handleMouseLeave}
+            onClick={() => {
+              if (canDeploy && !reserveLocked) {
+                // Enter deployment mode - the user will need to click on the board to place the unit
+                enterDeploymentMode(unit);
+              }
+            }}
           >
             <div className="text-white font-semibold text-sm truncate">{unit.name}</div>
             <div className="flex flex-col text-xs text-gray-300 mt-1">

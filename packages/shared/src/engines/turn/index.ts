@@ -1,11 +1,13 @@
 import type { GameState, UnitInstance, Position, PlayerState } from '../../types/index.js';
-import { TurnPhase, MAX_MOVES_PER_TURN, ACTIVE_UNIT_COUNT, MAX_HAND_SIZE } from '../../types/index.js';
+import { TurnPhase, MAX_MOVES_PER_TURN, ACTIVE_UNIT_COUNT, AbilityType } from '../../types/index.js';
 import type { Result } from '../../types/actions.js';
 import { moveUnit as boardMoveUnit, placeUnit, removeUnit as boardRemoveUnit } from '../board/index.js';
 import { resolveCombat } from '../combat/index.js';
 import { useAbility } from '../ability/index.js';
 import { applyDamageToLife } from '../resource/index.js';
 import { drawOne } from '../card/index.js';
+import { handleUnitDeath } from '../discard-pile/index.js';
+import { getCurrentPlayerStandbyStatus, canExitStandbyPhase } from '../standby/index.js';
 
 export function startTurn(state: GameState): GameState {
   const currentPlayer = state.players[state.currentPlayerIndex]!;
@@ -24,8 +26,7 @@ export function startTurn(state: GameState): GameState {
 
   if (
     state.turnRotation >= 1 &&
-    updatedPlayer.mainDeck.cards.length > 0 &&
-    updatedPlayer.hand.cards.length < MAX_HAND_SIZE
+    updatedPlayer.mainDeck.cards.length > 0
   ) {
     const { card, deck: newMainDeck } = drawOne(updatedPlayer.mainDeck);
     if (card) {
@@ -41,11 +42,18 @@ export function startTurn(state: GameState): GameState {
     i === state.currentPlayerIndex ? updatedPlayer : p
   );
 
-  return {
+  // Check if standby phase should be triggered
+  const newState = {
     ...state,
-    turnPhase: TurnPhase.MOVE,
-    movesUsedThisTurn: 0,
     players: newPlayers,
+    movesUsedThisTurn: 0,
+  };
+
+  const standbyStatus = getCurrentPlayerStandbyStatus(newState);
+  
+  return {
+    ...newState,
+    turnPhase: standbyStatus.isActive ? TurnPhase.STANDBY : TurnPhase.MOVE,
   };
 }
 
@@ -57,6 +65,15 @@ const PHASE_ORDER: TurnPhase[] = [
 ];
 
 export function advancePhase(state: GameState): Result<GameState> {
+  // Handle standby phase separately
+  if (state.turnPhase === TurnPhase.STANDBY) {
+    if (!canExitStandbyPhase(state)) {
+      return { ok: false, error: 'Cannot exit standby phase: requirements not met' };
+    }
+    // Exit standby phase and go to MOVE phase
+    return { ok: true, value: { ...state, turnPhase: TurnPhase.MOVE } };
+  }
+
   const currentIndex = PHASE_ORDER.indexOf(state.turnPhase);
   if (currentIndex === -1 || currentIndex >= PHASE_ORDER.length - 1) {
     return { ok: false, error: `Cannot advance from ${state.turnPhase} phase` };
@@ -64,6 +81,18 @@ export function advancePhase(state: GameState): Result<GameState> {
 
   const nextPhase = PHASE_ORDER[currentIndex + 1]!;
   return { ok: true, value: { ...state, turnPhase: nextPhase } };
+}
+
+export function exitStandbyPhase(state: GameState): Result<GameState> {
+  if (state.turnPhase !== TurnPhase.STANDBY) {
+    return { ok: false, error: 'Not in standby phase' };
+  }
+
+  if (!canExitStandbyPhase(state)) {
+    return { ok: false, error: 'Standby phase requirements not met' };
+  }
+
+  return { ok: true, value: { ...state, turnPhase: TurnPhase.MOVE } };
 }
 
 function findUnit(state: GameState, playerId: string, unitId: string): { player: PlayerState; unit: UnitInstance; playerIndex: number } | null {
@@ -77,17 +106,18 @@ function findUnit(state: GameState, playerId: string, unitId: string): { player:
   return null;
 }
 
-function findUnitById(state: GameState, unitId: string): { player: PlayerState; unit: UnitInstance; playerIndex: number } | null {
+function findUnitById(state: GameState, unitId: string, excludePlayerId?: string): { player: PlayerState; unit: UnitInstance; playerIndex: number } | null {
   for (let i = 0; i < state.players.length; i++) {
     const player = state.players[i]!;
+    if (excludePlayerId && player.id === excludePlayerId) continue;
     const unit = player.units.find((u) => u.card.id === unitId);
     if (unit) return { player, unit, playerIndex: i };
   }
   return null;
 }
 
-function manhattanDistance(a: Position, b: Position): number {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+function chebyshevDistance(a: Position, b: Position): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
 export function processMove(
@@ -151,7 +181,8 @@ export function processAbility(
   state: GameState,
   playerId: string,
   unitId: string,
-  targetUnitId: string | null
+  targetUnitId: string | null,
+  targetOwnerId?: string | null
 ): Result<GameState> {
   if (state.turnPhase !== TurnPhase.ABILITY) {
     return { ok: false, error: `Cannot use abilities outside ABILITY phase (current: ${state.turnPhase})` };
@@ -169,41 +200,103 @@ export function processAbility(
 
   const { unit } = found;
   let targetUnit: UnitInstance | null = null;
+  let targetFound: { player: PlayerState; unit: UnitInstance; playerIndex: number } | null = null;
   if (targetUnitId) {
-    const targetFound = findUnitById(state, targetUnitId);
+    // Use targetOwnerId for direct owner-scoped lookup (handles 3+ player card ID collisions)
+    if (targetOwnerId) {
+      targetFound = findUnit(state, targetOwnerId, targetUnitId);
+    } else {
+      // Fallback: search all players (legacy compatibility)
+      targetFound = findUnitById(state, targetUnitId);
+    }
     if (targetFound) {
       targetUnit = targetFound.unit;
     }
   }
 
-  const abilityResult = useAbility(unit, targetUnit, currentPlayer.life);
+  // Validate range: target must be within the unit's range (Chebyshev distance)
+  if (targetUnit && unit.position && targetUnit.position) {
+    const dist = chebyshevDistance(unit.position, targetUnit.position);
+    if (dist > unit.card.range) {
+      return { ok: false, error: `Target out of ability range: distance ${dist}, range ${unit.card.range}` };
+    }
+  }
+
+  // Validate target alignment: DAMAGE/MODIFIER must target enemies, HEAL/BUFF must target allies
+  if (targetUnit && targetFound) {
+    const isFriendly = targetFound.player.id === playerId;
+    const abilityType = unit.card.ability.abilityType;
+    if ((abilityType === AbilityType.DAMAGE || abilityType === AbilityType.MODIFIER) && isFriendly) {
+      return { ok: false, error: 'DAMAGE/MODIFIER abilities must target enemy units' };
+    }
+    if ((abilityType === AbilityType.HEAL || abilityType === AbilityType.BUFF) && !isFriendly) {
+      return { ok: false, error: 'HEAL/BUFF abilities must target friendly units' };
+    }
+  }
+
+  const abilityResult = useAbility(unit, targetUnit);
   if (!abilityResult.ok) {
     return { ok: false, error: abilityResult.error };
   }
 
-  const { unit: updatedUnit, target: updatedTarget, lifeCost } = abilityResult.value;
+  const { unit: updatedUnit, target: updatedTarget } = abilityResult.value;
   let newPlayers = state.players.map((p, i) => {
     if (i === state.currentPlayerIndex) {
       const newUnits = p.units.map((u) =>
         u.card.id === unitId ? updatedUnit : u
       );
-      return { ...p, units: newUnits, life: p.life - lifeCost };
+      return { ...p, units: newUnits };
     }
     return p;
   });
 
-  if (updatedTarget && targetUnitId) {
+  if (updatedTarget && targetUnitId && targetUnit) {
+    const targetOwnerId = targetUnit.ownerId;
+    newPlayers = newPlayers.map((p) => {
+      if (p.id !== targetOwnerId) return p;
+      return {
+        ...p,
+        units: p.units.map((u) =>
+          u.card.id === targetUnitId ? updatedTarget : u
+        ),
+      };
+    });
+  }
+
+  // Handle unit death after ability damage
+  let newBoard = state.board;
+  if (updatedTarget && updatedTarget.currentHp <= 0 && updatedTarget.position) {
+    // Remove dead unit from board
+    const removeResult = boardRemoveUnit(newBoard, updatedTarget.position);
+    if (removeResult.ok) newBoard = removeResult.value;
+
+    // Send unit to discard pile
+    const targetOwnerId2 = targetUnit!.ownerId;
+    newPlayers = newPlayers.map((p) => {
+      if (p.id === targetOwnerId2) {
+        // Add the dead unit's card to the discard pile
+        const updatedPlayer = handleUnitDeath(p, updatedTarget);
+        
+        // Set reserve lock if the killed unit's owner is the current player
+        const withReserveLock = targetOwnerId2 === currentPlayer.id
+          ? { ...updatedPlayer, reserveLockedUntilNextTurn: true }
+          : updatedPlayer;
+        
+        return withReserveLock;
+      }
+      return p;
+    });
+
+    // Remove dead units from player unit arrays
     newPlayers = newPlayers.map((p) => ({
       ...p,
-      units: p.units.map((u) =>
-        u.card.id === targetUnitId ? updatedTarget : u
-      ),
+      units: p.units.filter((u) => u.currentHp > 0),
     }));
   }
 
   return {
     ok: true,
-    value: { ...state, players: newPlayers },
+    value: { ...state, players: newPlayers, board: newBoard },
   };
 }
 
@@ -211,7 +304,8 @@ export function processAttack(
   state: GameState,
   playerId: string,
   attackerUnitId: string,
-  defenderUnitId: string
+  defenderUnitId: string,
+  defenderOwnerId?: string
 ): Result<GameState> {
   if (state.turnPhase !== TurnPhase.ATTACK) {
     return { ok: false, error: `Cannot attack outside ATTACK phase (current: ${state.turnPhase})` };
@@ -232,7 +326,10 @@ export function processAttack(
     return { ok: false, error: `Unit ${attackerUnitId} has already attacked this turn` };
   }
 
-  const defenderFound = findUnitById(state, defenderUnitId);
+  // Use defenderOwnerId for direct owner-scoped lookup (handles 3+ player card ID collisions)
+  const defenderFound = defenderOwnerId
+    ? findUnit(state, defenderOwnerId, defenderUnitId)
+    : findUnitById(state, defenderUnitId, playerId);
   if (!defenderFound) {
     return { ok: false, error: `Defender unit ${defenderUnitId} not found` };
   }
@@ -243,7 +340,7 @@ export function processAttack(
     return { ok: false, error: 'Both units must be on the board' };
   }
 
-  const dist = manhattanDistance(attacker.position, defender.position);
+  const dist = chebyshevDistance(attacker.position, defender.position);
   if (dist > attacker.card.range) {
     return { ok: false, error: `Target out of range: distance ${dist}, range ${attacker.card.range}` };
   }
@@ -252,10 +349,10 @@ export function processAttack(
 
   let newPlayers = state.players.map((p) => {
     const newUnits = p.units.map((u) => {
-      if (u.card.id === attackerUnitId) {
+      if (p.id === attackerFound.player.id && u.card.id === attackerUnitId) {
         return { ...combatResult.attacker, hasAttackedThisTurn: true };
       }
-      if (u.card.id === defenderUnitId) {
+      if (p.id === defenderFound.player.id && u.card.id === defenderUnitId) {
         return combatResult.defender;
       }
       return u;
@@ -279,31 +376,43 @@ export function processAttack(
     );
   }
 
-  // Remove dead units from board
+  // Remove dead units from board and send to discard pile
   let newBoard = state.board;
   if (combatResult.defenderDied && defender.position) {
     const removeResult = boardRemoveUnit(newBoard, defender.position);
     if (removeResult.ok) newBoard = removeResult.value;
 
-    // Set reserve lock if defender died during their own turn
-    if (defenderFound.player.id === currentPlayer.id) {
-      newPlayers = newPlayers.map((p) =>
-        p.id === defenderFound.player.id
-          ? { ...p, reserveLockedUntilNextTurn: true }
-          : p
-      );
-    }
+    // Send defender to discard pile and handle reserve lock
+    newPlayers = newPlayers.map((p) => {
+      if (p.id === defenderFound.player.id) {
+        // Add the dead unit's card to the discard pile
+        const updatedPlayer = handleUnitDeath(p, combatResult.defender);
+        
+        // Set reserve lock if defender died during their own turn
+        const withReserveLock = defenderFound.player.id === currentPlayer.id
+          ? { ...updatedPlayer, reserveLockedUntilNextTurn: true }
+          : updatedPlayer;
+        
+        return withReserveLock;
+      }
+      return p;
+    });
   }
   if (combatResult.attackerDied && attacker.position) {
     const removeResult = boardRemoveUnit(newBoard, attacker.position);
     if (removeResult.ok) newBoard = removeResult.value;
 
-    // Attacker always dies during own turn → lock reserve
-    newPlayers = newPlayers.map((p) =>
-      p.id === attackerFound.player.id
-        ? { ...p, reserveLockedUntilNextTurn: true }
-        : p
-    );
+    // Send attacker to discard pile and handle reserve lock
+    newPlayers = newPlayers.map((p) => {
+      if (p.id === attackerFound.player.id) {
+        // Add the dead unit's card to the discard pile
+        const updatedPlayer = handleUnitDeath(p, combatResult.attacker);
+        
+        // Attacker always dies during own turn -> lock reserve
+        return { ...updatedPlayer, reserveLockedUntilNextTurn: true };
+      }
+      return p;
+    });
   }
 
   // Remove dead units from player unit arrays
@@ -401,10 +510,20 @@ export function deployReserve(
       : p
   );
 
-  return {
-    ok: true,
-    value: { ...state, board: placeResult.value, players: newPlayers },
-  };
+  const newState = { ...state, board: placeResult.value, players: newPlayers };
+
+  // Check if we're still in standby phase and if bench deployment requirements are now met
+  if (state.turnPhase === TurnPhase.STANDBY) {
+    const standbyStatus = getCurrentPlayerStandbyStatus(newState);
+    
+    // If bench deployment is no longer needed but hand discard is still needed, stay in standby
+    // If both requirements are met, we can exit standby phase
+    if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard) {
+      return { ok: true, value: { ...newState, turnPhase: TurnPhase.MOVE } };
+    }
+  }
+
+  return { ok: true, value: newState };
 }
 
 export function checkReserveLocks(state: GameState, playerId: string): GameState {
@@ -439,7 +558,20 @@ export function playCard(
     i === playerIdx ? { ...p, hand: newHand, discardPile: newDiscard } : p
   );
 
-  return { ok: true, value: { ...state, players: newPlayers } };
+  const newState = { ...state, players: newPlayers };
+
+  // Check if we're still in standby phase and if hand discard requirements are now met
+  if (state.turnPhase === TurnPhase.STANDBY) {
+    const standbyStatus = getCurrentPlayerStandbyStatus(newState);
+    
+    // If hand discard is no longer needed but bench deployment is still needed, stay in standby
+    // If both requirements are met, we can exit standby phase
+    if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard) {
+      return { ok: true, value: { ...newState, turnPhase: TurnPhase.MOVE } };
+    }
+  }
+
+  return { ok: true, value: newState };
 }
 
 export function getBenchDeploymentNotification(

@@ -10,6 +10,7 @@ export enum IntentType {
   PLAY_CARD = 'PLAY_CARD',
   ADVANCE_PHASE = 'ADVANCE_PHASE',
   DEPLOY_RESERVE = 'DEPLOY_RESERVE',
+  DISCARD_CARD = 'DISCARD_CARD',
 }
 
 export interface MoveUnitIntent {
@@ -22,6 +23,7 @@ export interface UseAbilityIntent {
   type: IntentType.USE_ABILITY;
   unitId: string;
   targetId?: string;
+  targetOwnerId?: string;
   targetPosition?: Position;
 }
 
@@ -29,6 +31,7 @@ export interface AttackIntent {
   type: IntentType.ATTACK;
   attackerId: string;
   defenderId: string;
+  defenderOwnerId: string;
 }
 
 export interface EndTurnIntent {
@@ -56,6 +59,11 @@ export interface DeployReserveIntent {
   position: Position;
 }
 
+export interface DiscardCardIntent {
+  type: IntentType.DISCARD_CARD;
+  cardId: string;
+}
+
 export type ClientIntent =
   | MoveUnitIntent
   | UseAbilityIntent
@@ -64,7 +72,8 @@ export type ClientIntent =
   | SelectTeamIntent
   | LockTeamIntent
   | AdvancePhaseIntent
-  | DeployReserveIntent;
+  | DeployReserveIntent
+  | DiscardCardIntent;
 
 export interface ActionResult<T = unknown> {
   success: boolean;
