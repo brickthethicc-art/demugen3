@@ -1,0 +1,30 @@
+import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState } from 'react';
+import { useGameStore } from '../store/game-store.js';
+import { Trash2 } from 'lucide-react';
+import { DiscardPileViewer } from './DiscardPileViewer.js';
+export function DiscardPile() {
+    const gameState = useGameStore((s) => s.gameState);
+    const playerId = useGameStore((s) => s.playerId);
+    const [showViewer, setShowViewer] = useState(false);
+    // Get the current player's discard pile
+    const myPlayer = gameState?.players.find((p) => p.id === playerId);
+    const discardPile = myPlayer?.discardPile || { cards: [] };
+    const count = discardPile.cards.length;
+    const topCard = count > 0 ? discardPile.cards[count - 1] : null;
+    // Create entries for the viewer (simulate chronological order)
+    const entries = discardPile.cards.map((card, index) => ({
+        card,
+        timestamp: Date.now() - (count - index) * 1000, // Simulate chronological order
+        source: 'other',
+    }));
+    const handleClick = () => {
+        if (count > 0) {
+            setShowViewer(true);
+        }
+    };
+    return (_jsxs(_Fragment, { children: [_jsxs("div", { "data-testid": "discard-pile", onClick: handleClick, className: `w-[136px] h-[184px] bg-gray-900 border-2 border-white/10 rounded-lg flex flex-col items-center justify-center relative overflow-hidden transition-all ${count > 0
+                    ? 'cursor-pointer hover:border-mugen-accent/50 hover:from-red-900/40 hover:to-gray-900'
+                    : 'cursor-default'}`, children: [topCard && (_jsx("div", { className: "absolute inset-1 bg-gradient-to-br from-red-900/60 to-gray-900 rounded border border-red-700/30" })), _jsxs("div", { className: "relative z-10 flex flex-col items-center text-center px-1", children: [topCard ? (_jsxs(_Fragment, { children: [_jsx("span", { className: "text-white text-xs font-semibold truncate w-full", children: topCard.name }), _jsx("span", { className: "text-gray-300 text-2xl font-bold mt-1", children: count })] })) : (_jsxs(_Fragment, { children: [_jsx(Trash2, { size: 32, className: "text-gray-600 mb-2" }), _jsx("span", { className: "text-gray-500 text-2xl font-bold", children: count })] })), _jsx("span", { className: "text-gray-400 text-xs mt-1", children: "Graveyard" }), count > 0 && (_jsx("span", { className: "text-gray-500 text-xs mt-1", children: "Click to view" }))] })] }), showViewer && (_jsx(DiscardPileViewer, { entries: entries, count: count, onClose: () => setShowViewer(false) }))] }));
+}
+//# sourceMappingURL=DiscardPile.js.map
