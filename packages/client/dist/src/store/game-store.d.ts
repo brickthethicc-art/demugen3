@@ -34,6 +34,10 @@ export interface GameStore {
     error: string | null;
     handLimitNotification: boolean;
     handLimitModalOpen: boolean;
+    standbyModalNotification: boolean;
+    standbyModalOpen: boolean;
+    standbyModalDismissed: boolean;
+    canSelectBenchUnits: boolean;
     isPlayerReady: boolean;
     readyPlayersCount: number;
     totalPlayersCount: number;
@@ -80,6 +84,11 @@ export interface GameStore {
     showHandLimitNotification: () => void;
     openHandLimitModal: () => void;
     closeHandLimitModal: () => void;
+    showStandbyNotification: () => void;
+    openStandbyModal: () => void;
+    closeStandbyModal: () => void;
+    resetStandbyModal: () => void;
+    setCanSelectBenchUnits: (canSelect: boolean) => void;
     setQueueStatus: (isReady: boolean, readyCount: number, totalCount: number, waiting: boolean) => void;
     reset: () => void;
 }

@@ -478,7 +478,13 @@ export function deployReserve(
     return { ok: false, error: `Reserve unit ${unitId} not found` };
   }
 
-  const activeCount = player.units.filter((u) => u.position !== null).length;
+  const activeCount = player.units.filter((u) => 
+    u.position !== null && 
+    u.position.x >= 0 && 
+    u.position.x < state.board.width && 
+    u.position.y >= 0 && 
+    u.position.y < state.board.height
+  ).length;
   if (activeCount >= ACTIVE_UNIT_COUNT) {
     return { ok: false, error: `Cannot exceed ${ACTIVE_UNIT_COUNT} active units on the board` };
   }

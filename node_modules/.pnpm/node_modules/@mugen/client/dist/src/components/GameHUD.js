@@ -4,7 +4,6 @@ import { useGameActions } from '../hooks/useGameActions.js';
 import { useCardHover } from '../hooks/useUnitHover.js';
 import { TurnPhase } from '@mugen/shared';
 import { Heart, Zap, ArrowRight, SkipForward } from 'lucide-react';
-import { StandbyPhase } from './StandbyPhase.js';
 const PHASE_LABELS = {
     [TurnPhase.STANDBY]: 'Standby Phase',
     [TurnPhase.MOVE]: 'Move Phase',
@@ -73,9 +72,10 @@ function PhaseControls() {
     const { isMyTurn, sendAdvancePhase, sendEndTurn } = useGameActions();
     const gameState = useGameStore((s) => s.gameState);
     const handLimitModalOpen = useGameStore((s) => s.handLimitModalOpen);
+    const standbyModalOpen = useGameStore((s) => s.standbyModalOpen);
     if (!gameState || !isMyTurn)
         return null;
-    const controlsDisabled = handLimitModalOpen;
+    const controlsDisabled = handLimitModalOpen || standbyModalOpen;
     return (_jsxs("div", { className: "flex gap-2", children: [gameState.turnPhase !== TurnPhase.END && (_jsxs("button", { onClick: sendAdvancePhase, disabled: controlsDisabled, className: `flex items-center gap-1.5 px-4 py-2 bg-mugen-accent hover:bg-mugen-accent/80 rounded-lg text-sm font-medium transition ${controlsDisabled ? 'opacity-40 cursor-not-allowed' : ''}`, children: [_jsx(ArrowRight, { size: 14 }), " Next Phase"] })), _jsxs("button", { onClick: sendEndTurn, disabled: controlsDisabled, className: `flex items-center gap-1.5 px-4 py-2 bg-mugen-gold hover:bg-mugen-gold/80 text-black rounded-lg text-sm font-bold transition ${controlsDisabled ? 'opacity-40 cursor-not-allowed' : ''}`, children: [_jsx(SkipForward, { size: 14 }), " End Turn"] })] }));
 }
 export function GameHUD() {
@@ -95,18 +95,6 @@ export function GameHUD() {
                                 return (_jsxs("div", { className: `bg-mugen-surface border rounded-lg px-3 py-2 text-sm transition-all ${isCurrentTurn
                                         ? 'border-mugen-accent/50 bg-mugen-accent/10'
                                         : 'border-white/5'} ${player.isEliminated ? 'opacity-40 line-through' : ''}`, children: [_jsxs("div", { className: "flex items-center gap-2 mb-1", children: [isCurrentTurn && (_jsx("div", { className: "w-2 h-2 bg-mugen-accent rounded-full animate-pulse" })), _jsxs("div", { className: "font-medium text-xs", style: { color: playerColor }, children: [player.name, isCurrentPlayer && _jsx("span", { className: "text-xs text-gray-400 ml-1", children: "(You)" })] })] }), _jsxs("div", { className: "flex items-center gap-1 text-mugen-danger text-xs", children: [_jsx(Heart, { size: 10 }), " ", player.life] })] }, player.id));
-                            }) })] }) }), _jsx("div", { className: "absolute left-0 p-6 pointer-events-auto", style: { right: '50%', maxWidth: 'calc(50% - 48px)', bottom: '-21px' }, children: _jsx("div", { className: "bg-mugen-surface/90 backdrop-blur-sm rounded-xl border border-white/5 px-6 pb-1 pt-[16px] w-full", children: _jsxs("div", { className: "flex-1 min-w-0", children: [_jsx(StandbyPhase, { status: gameState.turnPhase === TurnPhase.STANDBY ? {
-                                    isActive: true,
-                                    needsBenchDeployment: true, // This will be calculated properly
-                                    needsHandDiscard: true, // This will be calculated properly
-                                    message: 'Standby phase active',
-                                    canProgress: false
-                                } : {
-                                    isActive: false,
-                                    needsBenchDeployment: false,
-                                    needsHandDiscard: false,
-                                    message: '',
-                                    canProgress: true
-                                } }), _jsx("h3", { className: "text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-3", children: "Hand" }), _jsx(HandDisplay, {})] }) }) }), error && (_jsx("div", { className: "absolute top-16 left-1/2 -translate-x-1/2 pointer-events-auto", children: _jsxs("button", { onClick: clearError, className: "bg-mugen-danger/90 text-white px-4 py-2 rounded-lg text-sm shadow-lg", children: [error, " \u2715"] }) }))] }));
+                            }) })] }) }), _jsx("div", { className: "absolute left-0 p-6 pointer-events-auto", style: { right: '50%', maxWidth: 'calc(50% - 48px)', bottom: '-21px' }, children: _jsx("div", { className: "bg-mugen-surface/90 backdrop-blur-sm rounded-xl border border-white/5 px-6 pb-1 pt-[16px] w-full", children: _jsxs("div", { className: "flex-1 min-w-0", children: [_jsx("h3", { className: "text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2", children: "Hand" }), _jsx(HandDisplay, {})] }) }) }), error && (_jsx("div", { className: "absolute top-16 left-1/2 -translate-x-1/2 pointer-events-auto", children: _jsxs("button", { onClick: clearError, className: "bg-mugen-danger/90 text-white px-4 py-2 rounded-lg text-sm shadow-lg", children: [error, " \u2715"] }) }))] }));
 }
 //# sourceMappingURL=GameHUD.js.map

@@ -46,8 +46,9 @@ export class GameScene extends Phaser.Scene {
         this.deploymentHighlightGraphics = this.add.graphics();
         this.deploymentHighlightGraphics.setDepth(100);
         this.input.on('pointerdown', (pointer) => {
-            // Block all board interactions while hand limit modal is open
-            if (useGameStore.getState().handLimitModalOpen)
+            // Block all board interactions while hand limit modal or standby modal is open
+            const storeState = useGameStore.getState();
+            if (storeState.handLimitModalOpen || storeState.standbyModalOpen)
                 return;
             // Get accurate world coordinates that account for scaling
             const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -81,12 +82,12 @@ export class GameScene extends Phaser.Scene {
                                 if (unit.ownerId !== store.playerId) {
                                     return; // Ignore clicks on opponent units
                                 }
-                                // Handle unit click
-                                if (store.selectedUnitId === unit.card.id) {
+                                // Handle unit click - use unit instance ID for proper selection
+                                if (store.selectedUnitId === unitInstanceId) {
                                     store.selectUnit(null);
                                 }
                                 else {
-                                    store.selectUnit(unit.card.id);
+                                    store.selectUnit(unitInstanceId);
                                 }
                                 return; // Stop processing - unit click handled
                             }

@@ -23,12 +23,20 @@ export function UnitActionMenu() {
     }));
     const { isMyTurn } = useGameActions();
     const { enterMoveMode, exitMoveMode, hideMenuDuringMove, showMenuDuringMove, setValidMoves, clearValidMoves, selectUnit, enterAbilityMode, exitAbilityMode, setAbilityTargets, clearAbilityTargets, enterAttackMode, exitAttackMode, setAttackTargets, clearAttackTargets } = useGameStore();
-    // Find the selected unit (scoped to local player to avoid card ID collisions across players)
+    // Find the selected unit using unit instance ID
     const selectedUnit = useMemo(() => {
         if (!selectedUnitId || !gameState || !playerId)
             return null;
-        const myPlayer = gameState.players.find(p => p.id === playerId);
-        return myPlayer?.units.find(u => u.card.id === selectedUnitId) ?? null;
+        // Find the unit across all players that matches the selected unit instance ID
+        for (const player of gameState.players) {
+            for (const unit of player.units) {
+                const unitInstanceId = `${unit.ownerId}-${unit.card.id}`;
+                if (unitInstanceId === selectedUnitId && unit.ownerId === playerId) {
+                    return unit;
+                }
+            }
+        }
+        return null;
     }, [selectedUnitId, gameState, playerId]);
     // Determine available actions based on phase and unit state
     const isMovePhase = gameState?.turnPhase === TurnPhase.MOVE;

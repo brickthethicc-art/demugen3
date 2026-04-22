@@ -45,6 +45,12 @@ export interface GameStore {
   handLimitNotification: boolean;
   handLimitModalOpen: boolean;
 
+  // Standby deploy modal
+  standbyModalNotification: boolean;
+  standbyModalOpen: boolean;
+  standbyModalDismissed: boolean;
+  canSelectBenchUnits: boolean;
+
   // Queue/Ready state
   isPlayerReady: boolean;
   readyPlayersCount: number;
@@ -90,6 +96,11 @@ export interface GameStore {
   showHandLimitNotification: () => void;
   openHandLimitModal: () => void;
   closeHandLimitModal: () => void;
+  showStandbyNotification: () => void;
+  openStandbyModal: () => void;
+  closeStandbyModal: () => void;
+  resetStandbyModal: () => void;
+  setCanSelectBenchUnits: (canSelect: boolean) => void;
   setQueueStatus: (isReady: boolean, readyCount: number, totalCount: number, waiting: boolean) => void;
   reset: () => void;
 }
@@ -122,6 +133,10 @@ const initialState = {
   error: null,
   handLimitNotification: false,
   handLimitModalOpen: false,
+  standbyModalNotification: false,
+  standbyModalOpen: false,
+  standbyModalDismissed: false,
+  canSelectBenchUnits: false,
   isPlayerReady: false,
   readyPlayersCount: 0,
   totalPlayersCount: 0,
@@ -179,6 +194,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const handSize = currentPlayer?.hand.cards.length ?? 0;
       if (handSize > MAX_HAND_SIZE && !get().handLimitModalOpen && !get().handLimitNotification) {
         set({ handLimitNotification: true });
+      }
+
+      // Standby deploy modal: show ONLY when it is the LOCAL player's turn
+      // and they enter standby with fewer than 3 of THEIR OWN active units.
+      // Each player (1–4) has separate units; never count other players' units.
+      const isMyTurn = state.players[state.currentPlayerIndex]?.id === playerId;
+      if (state.turnPhase === 'STANDBY' && isMyTurn && currentPlayer) {
+        const myActiveOnBoard = currentPlayer.units.filter(u => 
+          u.position !== null && 
+          u.position!.x >= 0 && 
+          u.position!.x < state.board.width && 
+          u.position!.y >= 0 && 
+          u.position!.y < state.board.height
+        ).length;
+        const hasBench = currentPlayer.team.reserveUnits.length > 0;
+        if (myActiveOnBoard < 3 && hasBench && !get().standbyModalNotification && !get().standbyModalOpen && !get().standbyModalDismissed) {
+          set({ standbyModalNotification: true }); // Trigger notification first
+        }
+      } else if (state.turnPhase !== 'STANDBY' || !isMyTurn) {
+        // Reset standby modal state when leaving standby phase or when it's not our turn
+        if (get().standbyModalNotification || get().standbyModalOpen || get().standbyModalDismissed) {
+          set({ standbyModalNotification: false, standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false });
+        }
       }
     }
   },
@@ -263,6 +301,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   showHandLimitNotification: () => set({ handLimitNotification: true }),
   openHandLimitModal: () => set({ handLimitNotification: false, handLimitModalOpen: true }),
   closeHandLimitModal: () => set({ handLimitModalOpen: false }),
+  showStandbyNotification: () => set({ standbyModalNotification: true, standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false }),
+  openStandbyModal: () => set({ standbyModalNotification: false, standbyModalOpen: true, standbyModalDismissed: false, canSelectBenchUnits: false }),
+  closeStandbyModal: () => set({ 
+    standbyModalOpen: false, 
+    standbyModalDismissed: true,
+    canSelectBenchUnits: true // Enable bench unit selection after modal is dismissed
+  }),
+  resetStandbyModal: () => set({ standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false }),
+  setCanSelectBenchUnits: (canSelect) => set({ canSelectBenchUnits: canSelect }),
   setQueueStatus: (isReady, readyCount, totalCount, waiting) => set({ 
     isPlayerReady: isReady, 
     readyPlayersCount: readyCount, 

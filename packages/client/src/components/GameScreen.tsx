@@ -5,6 +5,7 @@ import { HoverPanel } from './HoverPanel.js';
 import { MainDeckPile } from './MainDeckPile.js';
 import { DiscardPile } from './DiscardPile.js';
 import { HandLimitModal } from './HandLimitModal.js';
+import { StandbyDeployModal } from './StandbyDeployModal.js';
 
 export function GameScreen() {
   return (
@@ -32,6 +33,7 @@ export function GameScreen() {
       </div>
       <GameHUD />
       <HandLimitModal />
+      <StandbyDeployModal />
     </div>
   );
 }

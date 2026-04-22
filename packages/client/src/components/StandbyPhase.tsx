@@ -1,4 +1,4 @@
-import { AlertCircle, Users, Hand } from 'lucide-react';
+import { AlertCircle, Hand } from 'lucide-react';
 import type { StandbyPhaseStatus } from '@mugen/shared';
 
 interface StandbyPhaseProps {
@@ -23,13 +23,6 @@ export function StandbyPhase({ status }: StandbyPhaseProps) {
           <p className="text-yellow-200 text-sm mb-3">{status.message}</p>
           
           <div className="space-y-2">
-            {status.needsBenchDeployment && (
-              <div className="flex items-center gap-2 text-xs text-yellow-300">
-                <Users size={16} />
-                <span>Bench deployment required</span>
-              </div>
-            )}
-            
             {status.needsHandDiscard && (
               <div className="flex items-center gap-2 text-xs text-yellow-300">
                 <Hand size={16} />

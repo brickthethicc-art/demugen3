@@ -109,8 +109,9 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
 
-      // Block all board interactions while hand limit modal is open
-      if (useGameStore.getState().handLimitModalOpen) return;
+      // Block all board interactions while hand limit modal or standby modal is open
+      const storeState = useGameStore.getState();
+      if (storeState.handLimitModalOpen || storeState.standbyModalOpen) return;
 
       // Get accurate world coordinates that account for scaling
 

@@ -3,7 +3,6 @@ import { useGameActions } from '../hooks/useGameActions.js';
 import { useCardHover } from '../hooks/useUnitHover.js';
 import { TurnPhase } from '@mugen/shared';
 import { Heart, Zap, ArrowRight, SkipForward } from 'lucide-react';
-import { StandbyPhase } from './StandbyPhase.js';
 
 const PHASE_LABELS: Record<string, string> = {
   [TurnPhase.STANDBY]: 'Standby Phase',
@@ -180,9 +179,10 @@ function PhaseControls() {
   const { isMyTurn, sendAdvancePhase, sendEndTurn } = useGameActions();
   const gameState = useGameStore((s) => s.gameState);
   const handLimitModalOpen = useGameStore((s) => s.handLimitModalOpen);
+  const standbyModalOpen = useGameStore((s) => s.standbyModalOpen);
 
   if (!gameState || !isMyTurn) return null;
-  const controlsDisabled = handLimitModalOpen;
+  const controlsDisabled = handLimitModalOpen || standbyModalOpen;
 
   return (
     <div className="flex gap-2">
@@ -272,20 +272,7 @@ export function GameHUD() {
       <div className="absolute left-0 p-6 pointer-events-auto" style={{ right: '50%', maxWidth: 'calc(50% - 48px)', bottom: '-21px' }}>
         <div className="bg-mugen-surface/90 backdrop-blur-sm rounded-xl border border-white/5 px-6 pb-1 pt-[16px] w-full">
           <div className="flex-1 min-w-0">
-            <StandbyPhase status={gameState.turnPhase === TurnPhase.STANDBY ? {
-              isActive: true,
-              needsBenchDeployment: true, // This will be calculated properly
-              needsHandDiscard: true, // This will be calculated properly
-              message: 'Standby phase active',
-              canProgress: false
-            } : {
-              isActive: false,
-              needsBenchDeployment: false,
-              needsHandDiscard: false,
-              message: '',
-              canProgress: true
-            }} />
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-3">Hand</h3>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Hand</h3>
             <HandDisplay />
           </div>
         </div>

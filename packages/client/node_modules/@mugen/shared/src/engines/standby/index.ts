@@ -12,8 +12,15 @@ export interface StandbyPhaseStatus {
 /**
  * Determines if the standby phase should be triggered for a player
  */
-export function shouldTriggerStandbyPhase(player: PlayerState): StandbyPhaseStatus {
-  const activeUnitCount = player.units.filter(u => u.position !== null).length;
+export function shouldTriggerStandbyPhase(player: PlayerState, boardWidth: number = 23, boardHeight: number = 23): StandbyPhaseStatus {
+  // Count only units actually ON the board (within bounds), not bench units with out-of-bounds positions
+  const activeUnitCount = player.units.filter(u => 
+    u.position !== null && 
+    u.position!.x >= 0 && 
+    u.position!.x < boardWidth && 
+    u.position!.y >= 0 && 
+    u.position!.y < boardHeight
+  ).length;
   const hasBenchUnits = player.team.reserveUnits.length > 0;
   const handSize = player.hand.cards.length;
 
@@ -53,7 +60,7 @@ export function getCurrentPlayerStandbyStatus(state: GameState): StandbyPhaseSta
   if (!currentPlayer) {
     throw new Error(`Current player not found at index ${state.currentPlayerIndex}`);
   }
-  return shouldTriggerStandbyPhase(currentPlayer);
+  return shouldTriggerStandbyPhase(currentPlayer, state.board.width, state.board.height);
 }
 
 /**
@@ -65,7 +72,7 @@ export function validateBenchDeployment(state: GameState): boolean {
     throw new Error(`Current player not found at index ${state.currentPlayerIndex}`);
   }
   
-  const status = shouldTriggerStandbyPhase(currentPlayer);
+  const status = shouldTriggerStandbyPhase(currentPlayer, state.board.width, state.board.height);
   
   // If bench deployment is not required, it's valid
   if (!status.needsBenchDeployment) {
@@ -73,7 +80,13 @@ export function validateBenchDeployment(state: GameState): boolean {
   }
   
   // Check if player has at least one active unit now (or no more bench units)
-  const activeUnitCount = currentPlayer.units.filter(u => u.position !== null).length;
+  const activeUnitCount = currentPlayer.units.filter(u => 
+    u.position !== null && 
+    u.position!.x >= 0 && 
+    u.position!.x < state.board.width && 
+    u.position!.y >= 0 && 
+    u.position!.y < state.board.height
+  ).length;
   const hasBenchUnits = currentPlayer.team.reserveUnits.length > 0;
   
   // Valid if: has at least 1 active unit OR no more bench units available

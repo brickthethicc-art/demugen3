@@ -9,14 +9,41 @@ export function BenchUnits() {
   const playerId = useGameStore(state => state.playerId);
   const { handleMouseEnter, handleMouseLeave } = useUnitHover();
   const { enterDeploymentMode } = useGameStore();
-
+  const canSelectBenchUnits = useGameStore(state => state.canSelectBenchUnits);
+  
   // Check if it's the player's turn and they can deploy reserves
   const isMyTurn = gameState?.players[gameState.currentPlayerIndex]?.id === playerId;
-  const canDeploy = isMyTurn && gameState?.turnPhase !== TurnPhase.STANDBY;
+  const isStandby = gameState?.turnPhase === TurnPhase.STANDBY;
   
-  // Find the current player to check reserve lock
+  // Find the current player to check reserve lock and active unit count
   const currentPlayer = gameState?.players.find(p => p.id === playerId);
   const reserveLocked = currentPlayer?.reserveLockedUntilNextTurn ?? false;
+  const activeUnitCount = currentPlayer?.units.filter(u => 
+    u.position !== null && 
+    u.position!.x >= 0 && 
+    u.position!.x < (gameState?.board.width || 0) && 
+    u.position!.y >= 0 && 
+    u.position!.y < (gameState?.board.height || 0)
+  ).length ?? 0;
+  
+  // CORRECTED BEHAVIOR: Bench units are clickable when notification has disappeared
+  // AND all other conditions are met (turn ownership, standby phase, active units < 3, etc.)
+  const canDeploy = isMyTurn && 
+                     isStandby && 
+                     activeUnitCount < 3 && 
+                     canSelectBenchUnits && 
+                     !reserveLocked;
+  
+  // Debug logging for bench unit interaction
+  console.log('=== BENCH UNIT INTERACTION CHECK ===');
+  console.log('playerId:', playerId);
+  console.log('isMyTurn:', isMyTurn);
+  console.log('isStandby:', isStandby);
+  console.log('activeUnitCount:', activeUnitCount);
+  console.log('canSelectBenchUnits:', canSelectBenchUnits);
+  console.log('reserveLocked:', reserveLocked);
+  console.log('canDeploy:', canDeploy);
+  console.log('=====================================');
 
   if (benchUnits.length === 0) {
     return (
@@ -43,14 +70,24 @@ export function BenchUnits() {
               canDeploy && !reserveLocked
                 ? 'cursor-pointer hover:bg-gray-700 hover:border-green-500 border-white/20'
                 : 'cursor-not-allowed opacity-50 border-gray-600'
+            } ${
+              canDeploy && !reserveLocked
+                ? 'animate-pulse ring-2 ring-white/70 shadow-[0_0_12px_rgba(255,255,255,0.4)]'
+                : ''
             }`}
             onMouseEnter={() => handleMouseEnter(unit)}
             onMouseLeave={handleMouseLeave}
             onClick={() => {
-              if (canDeploy && !reserveLocked) {
-                // Enter deployment mode - the user will need to click on the board to place the unit
-                enterDeploymentMode(unit);
+              // CORRECTED BEHAVIOR: Bench units are clickable after notification disappears
+              // when all conditions are met (turn ownership, standby phase, active units < 3, etc.)
+              if (!canDeploy) {
+                console.log('Bench unit click blocked: conditions not met');
+                return;
               }
+              
+              // Enter deployment mode - the user will need to click on the board to place the unit
+              console.log('Bench unit click allowed: entering deployment mode for', unit.name);
+              enterDeploymentMode(unit);
             }}
           >
             <div className="text-white font-semibold text-sm truncate">{unit.name}</div>
