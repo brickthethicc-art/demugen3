@@ -8,6 +8,7 @@ import { applyDamageToLife } from '../resource/index.js';
 import { drawOne } from '../card/index.js';
 import { handleUnitDeath } from '../discard-pile/index.js';
 import { getCurrentPlayerStandbyStatus, canExitStandbyPhase } from '../standby/index.js';
+import { getPlayerColor } from '../player-color/index.js';
 
 export function startTurn(state: GameState): GameState {
   const currentPlayer = state.players[state.currentPlayerIndex]!;
@@ -499,6 +500,7 @@ export function deployReserve(
     currentHp: reserveUnit.hp,
     position,
     ownerId: playerId,
+    color: getPlayerColor(playerIdx),
     hasMovedThisTurn: false,
     hasUsedAbilityThisTurn: false,
     hasAttackedThisTurn: false,
