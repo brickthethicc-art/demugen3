@@ -21,8 +21,10 @@ describe('AbilityEngine', () => {
           ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
         }),
         hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
       });
-      const target = createUnitInstance({ currentHp: 10 });
+      const target = createUnitInstance({ currentHp: 10, position: { x: 6, y: 5 }, ownerId: 'p2' });
 
       const result = useAbility(unit, target);
       expect(result.ok).toBe(true);
@@ -37,8 +39,10 @@ describe('AbilityEngine', () => {
           ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
         }),
         hasUsedAbilityThisTurn: true,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
       });
-      const target = createUnitInstance({ currentHp: 10 });
+      const target = createUnitInstance({ currentHp: 10, position: { x: 6, y: 5 }, ownerId: 'p2' });
 
       const result = useAbility(unit, target);
       expect(result.ok).toBe(false);
@@ -53,8 +57,10 @@ describe('AbilityEngine', () => {
           ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 3 }),
         }),
         hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
       });
-      const target = createUnitInstance({ currentHp: 10 });
+      const target = createUnitInstance({ currentHp: 10, position: { x: 6, y: 5 }, ownerId: 'p2' });
 
       const result = useAbility(unit, target);
       expect(result.ok).toBe(true);
@@ -70,8 +76,10 @@ describe('AbilityEngine', () => {
           atk: 4,
         }),
         hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
       });
-      const target = createUnitInstance({ currentHp: 10 });
+      const target = createUnitInstance({ currentHp: 10, position: { x: 6, y: 5 }, ownerId: 'p2' });
 
       const result = useAbility(unit, target);
       expect(result.ok).toBe(true);
@@ -89,11 +97,15 @@ describe('AbilityEngine', () => {
       const unit = createUnitInstance({
         card,
         hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
       });
       const targetCard = createUnit({ hp: 10, maxHp: 10 });
       const target = createUnitInstance({
         card: targetCard,
         currentHp: 5,
+        position: { x: 6, y: 5 },
+        ownerId: 'p1',
       });
 
       const result = useAbility(unit, target);
@@ -110,13 +122,317 @@ describe('AbilityEngine', () => {
           ability: createAbility({ abilityType: AbilityType.MODIFIER, cost: 0 }),
         }),
         hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
       });
-      const target = createUnitInstance({ combatModifiers: [] });
+      const target = createUnitInstance({ combatModifiers: [], position: { x: 6, y: 5 }, ownerId: 'p2' });
 
       const result = useAbility(unit, target);
       expect(result.ok).toBe(true);
       if (result.ok && result.value.target) {
         expect(result.value.target.combatModifiers.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('unit without position — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: null,
+      });
+      const target = createUnitInstance({ currentHp: 10, position: { x: 5, y: 5 } });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('must be on the board');
+      }
+    });
+
+    it('target without position — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+      });
+      const target = createUnitInstance({ currentHp: 10, position: null });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('must be on the board');
+      }
+    });
+
+    it('target already defeated — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+      });
+      const target = createUnitInstance({ currentHp: 0, position: { x: 6, y: 5 } });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('already defeated');
+      }
+    });
+
+    it('target out of range — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
+          range: 1,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 10, y: 10 },
+        ownerId: 'p2',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('out of range');
+      }
+    });
+
+    it('DAMAGE ability targeting friendly unit — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
+          range: 2,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 6, y: 5 },
+        ownerId: 'p1',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('Cannot target friendly units');
+      }
+    });
+
+    it('HEAL ability targeting enemy unit — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.HEAL, cost: 0 }),
+          range: 2,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 5,
+        position: { x: 6, y: 5 },
+        ownerId: 'p2',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('Cannot target enemy units');
+      }
+    });
+
+    it('BUFF ability targeting enemy unit — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.BUFF, cost: 0, description: 'Buff ally ATK by 2' }),
+          range: 2,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 6, y: 5 },
+        ownerId: 'p2',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('Cannot target enemy units');
+      }
+    });
+
+    it('MODIFIER ability targeting friendly unit — returns error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.MODIFIER, cost: 0 }),
+          range: 2,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 6, y: 5 },
+        ownerId: 'p1',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('Cannot target friendly units');
+      }
+    });
+
+    it('valid DAMAGE ability on enemy in range — succeeds', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
+          range: 2,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 6, y: 5 },
+        ownerId: 'p2',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.target?.currentHp).toBeLessThan(10);
+      }
+    });
+
+    it('valid HEAL ability on ally in range — succeeds', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.HEAL, cost: 0 }),
+          range: 2,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit({ hp: 10, maxHp: 10 }),
+        currentHp: 5,
+        position: { x: 6, y: 5 },
+        ownerId: 'p1',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.target?.currentHp).toBeGreaterThan(5);
+      }
+    });
+
+    it('self-target BUFF ability — succeeds without target', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.BUFF, cost: 0, description: 'Gain +1 ATK' }),
+          range: 1,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+
+      const result = useAbility(unit, null);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.unit.combatModifiers.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('adjacent ability — requires distance = 1, ignores unit range stat', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0, description: 'Deal 1 damage to adjacent enemy' }),
+          range: 5, // High range stat
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 7, y: 5 }, // Distance 2, should fail even though range is 5
+        ownerId: 'p2',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('must be adjacent');
+      }
+    });
+
+    it('adjacent ability — succeeds with distance = 1', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0, description: 'Deal 1 damage to adjacent enemy' }),
+          range: 5,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 6, y: 5 }, // Distance 1, should succeed
+        ownerId: 'p2',
+      });
+
+      const result = useAbility(unit, target);
+      expect(result.ok).toBe(true);
+    });
+
+    it('self-target HEAL ability — succeeds without target', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          hp: 10,
+          maxHp: 10,
+          ability: createAbility({ abilityType: AbilityType.HEAL, cost: 0, description: 'Heal 3 HP to self' }),
+          range: 1,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+        currentHp: 5,
+      });
+
+      const result = useAbility(unit, null);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.unit.currentHp).toBeGreaterThan(5);
       }
     });
   });

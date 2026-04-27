@@ -5,21 +5,50 @@ import type { UnitCard } from '@mugen/shared';
 import { Coins, Users, Shield, Swords } from 'lucide-react';
 
 export function StartingUnitSelection() {
-  const { 
-    selectedDeck, 
-    startingUnits, 
-    setStartingUnits, 
+  console.log('STARTING UNIT SELECTION COMPONENT LOADED');
+
+  const {
+    selectedDeck,
+    startingUnits,
+    setStartingUnits,
     confirmStartingUnits,
     isPlayerReady,
     readyPlayersCount,
     totalPlayersCount,
     isWaitingForOthers
   } = useGameStore();
+
+  console.log('STARTING UNIT SELECTION - selectedDeck length:', selectedDeck?.length || 0);
+  console.log('STARTING UNIT SELECTION - startingUnits length:', startingUnits.length);
+  console.log('STARTING UNIT SELECTION - isPlayerReady:', isPlayerReady);
+
+  // FAILSAFE: If selectedDeck is null, show error instead of blank screen
+  if (!selectedDeck || selectedDeck.length === 0) {
+    console.error('STARTING UNIT SELECTION - CRITICAL: selectedDeck is null or empty!');
+    return (
+      <div className="min-h-screen bg-mugen-bg flex items-center justify-center">
+        <div className="bg-red-900/50 rounded-2xl p-8 w-full max-w-md border border-red-500">
+          <h1 className="text-2xl font-bold text-center mb-4 text-white">Deck Not Found</h1>
+          <p className="text-gray-300 text-center mb-4">Your deck was not loaded properly.</p>
+          <p className="text-gray-400 text-sm text-center mb-4">Please return to the deck selection screen and choose a deck.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full px-4 py-2 bg-mugen-accent hover:bg-mugen-accent/80 rounded-lg font-semibold transition"
+          >
+            Reload Page
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Filter only unit cards from deck
   const availableUnits = selectedDeck?.filter(card => card.cardType === CardType.UNIT) as UnitCard[] || [];
+
+  console.log('STARTING UNIT SELECTION - availableUnits length:', availableUnits.length);
 
   const totalCost = startingUnits.reduce((sum, unit) => sum + unit.cost, 0);
   const isValidSelection = startingUnits.length === 6 && totalCost < 40;

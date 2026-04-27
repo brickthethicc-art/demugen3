@@ -5,12 +5,6 @@ import { placeUnit } from '../board/index.js';
 import { assignPlayerColors } from '../player-color/index.js';
 import { getSpawnPositions, getReservePositions } from './index.js';
 
-// ── Debug helpers (enabled by default for debugging spawn issues) ──
-const DEBUG = true;
-function dbg(...args: unknown[]) {
-  if (DEBUG) console.log('[match-init]', ...args);
-}
-
 /**
  * Initialize match units for all players.
  *
@@ -25,28 +19,29 @@ function dbg(...args: unknown[]) {
  *   - gameState.phase === IN_PROGRESS
  */
 export function initializeMatchUnits(gameState: GameState): Result<GameState> {
-  dbg('=== initializeMatchUnits START ===');
-  dbg('Phase:', gameState.phase, '| Players:', gameState.players.length);
-
   // Phase guard
   if (gameState.phase !== GamePhase.PRE_GAME) {
     return { ok: false, error: `Cannot initialize match units in phase ${gameState.phase}, expected PRE_GAME` };
   }
 
   // Step 1: Ensure consistent player ordering by sorting by ID
-  dbg('Original player order:', gameState.players.map(p => p.id));
+  // CRITICAL: Track which player should start before sorting
+  const currentPlayerBeforeSort = gameState.players[gameState.currentPlayerIndex];
   const sortedPlayers = [...gameState.players].sort((a, b) => a.id.localeCompare(b.id));
-  dbg('Sorted player order:', sortedPlayers.map(p => p.id));
-  const reorderedState = { ...gameState, players: sortedPlayers };
-  
+
+  // Update currentPlayerIndex to match the sorted order
+  const newCurrentPlayerIndex = currentPlayerBeforeSort
+    ? sortedPlayers.findIndex(p => p.id === currentPlayerBeforeSort.id)
+    : 0;
+
+  const reorderedState = {
+    ...gameState,
+    players: sortedPlayers,
+    currentPlayerIndex: newCurrentPlayerIndex >= 0 ? newCurrentPlayerIndex : 0,
+  };
+
   // Step 2: Assign colors to all players
   let stateWithColors = assignPlayerColors(reorderedState);
-  dbg('Colors assigned:', stateWithColors.players.map(p => `${p.id}=${p.color}`).join(', '));
-
-  // Debug logging for player indices and colors
-  stateWithColors.players.forEach((player, index) => {
-    dbg(`Player ${index}: id=${player.id}, color=${player.color} (should be ${index === 0 ? 'bottom' : index === 1 ? 'top' : 'side'})`);
-  });
 
   let updatedBoard = gameState.board;
   const updatedPlayers = [];
@@ -73,16 +68,12 @@ export function initializeMatchUnits(gameState: GameState): Result<GameState> {
       };
     }
 
-    dbg(`Player ${player.id}: active=${player.team.activeUnits.map(u => u.id).join(',')} bench=${player.team.reserveUnits.map(u => u.id).join(',')}`);
-
     // Calculate grid positions for this player's active units
     const startingPositions: Position[] = getSpawnPositions(
       pIdx,
       updatedBoard.width,
       updatedBoard.height,
     );
-    
-    dbg(`Player ${player.id} (${player.color}) [index ${pIdx}] spawn positions:`, startingPositions);
 
     // Build UnitInstances for active units (placed on grid)
     const activeInstances: UnitInstance[] = [];
@@ -92,8 +83,6 @@ export function initializeMatchUnits(gameState: GameState): Result<GameState> {
 
       // Create unique unit instance ID to avoid collisions between players
       const unitInstanceId = `${player.id}-${card.id}`;
-
-      dbg(`Placing unit ${card.id} (instance: ${unitInstanceId}) for player ${player.id} (${player.color}) at position (${position.x}, ${position.y})`);
 
       const instance: UnitInstance = {
         card,
@@ -114,7 +103,6 @@ export function initializeMatchUnits(gameState: GameState): Result<GameState> {
         return { ok: false, error: `Failed to place unit ${card.id} for player ${player.id}: ${placeResult.error}` };
       }
       updatedBoard = placeResult.value;
-      dbg(`  Placed ${unitInstanceId} at (${position.x}, ${position.y})`);
     }
 
     // Calculate reserve positions for bench units (vertical stack on player's side)
@@ -137,31 +125,19 @@ export function initializeMatchUnits(gameState: GameState): Result<GameState> {
       combatModifiers: [],
     }));
 
-    dbg(`  Bench units placed at: ${reservePositions.map(p => `(${p.x},${p.y})`).join(', ')}`);
-
     updatedPlayers.push({
       ...player,
       units: [...activeInstances, ...benchInstances],
+      // Explicitly preserve critical fields to prevent initialization bugs
+      life: player.life,
+      maxLife: player.maxLife,
+      isEliminated: player.isEliminated,
+      isReady: player.isReady,
+      isConnected: player.isConnected,
+      reserveLockedUntilNextTurn: player.reserveLockedUntilNextTurn,
       // team stays as-is (already has activeUnits / reserveUnits / locked)
     });
   }
-
-  // Final board state logging
-  dbg('=== FINAL SPAWN RESULTS ===');
-  for (const player of updatedPlayers) {
-    const activeUnits = player.units.filter(u => 
-      u.position !== null && 
-      u.position!.x >= 0 && 
-      u.position!.x < updatedBoard.width &&
-      u.position!.y >= 0 && 
-      u.position!.y < updatedBoard.height
-    );
-    dbg(`Player ${player.id} (${player.color}): ${activeUnits.length} active units`);
-    activeUnits.forEach((unit, i) => {
-      dbg(`  Unit ${i+1}: ${unit.card.id} at (${unit.position!.x}, ${unit.position!.y})`);
-    });
-  }
-  dbg('=== initializeMatchUnits COMPLETE — phase → IN_PROGRESS ===');
 
   return {
     ok: true,

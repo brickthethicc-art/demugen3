@@ -4,9 +4,10 @@ import type { GameState, Position, UnitInstance } from '@mugen/shared';
 import type { AbilityTarget } from '@mugen/shared/src/engines/ability/index.js';
 import type { AttackTarget } from '@mugen/shared/src/engines/combat/index.js';
 
-import { IntentType } from '@mugen/shared';
+import { IntentType, TurnPhase } from '@mugen/shared';
 
 import { useGameStore } from '../store/game-store.js';
+import { sendIntent } from '../network/socket-client.js';
 
 import { VisibilityEngine } from '@mugen/shared';
 
@@ -70,6 +71,10 @@ export class GameScene extends Phaser.Scene {
 
   private deploymentHighlightGraphics: Phaser.GameObjects.Graphics | null = null;
 
+  private sorceryHighlightGraphics: Phaser.GameObjects.Graphics | null = null;
+
+  private sorceryFirstTargetGraphics: Phaser.GameObjects.Graphics | null = null;
+
   private lastState: GameState | null = null;
 
   private lastValidMoves: Position[] = [];
@@ -89,7 +94,6 @@ export class GameScene extends Phaser.Scene {
 
 
   create() {
-
     this.cellGraphics = this.add.graphics();
 
     this.highlightGraphics = this.add.graphics();
@@ -104,6 +108,12 @@ export class GameScene extends Phaser.Scene {
 
     this.deploymentHighlightGraphics = this.add.graphics();
     this.deploymentHighlightGraphics.setDepth(100);
+
+    this.sorceryHighlightGraphics = this.add.graphics();
+    this.sorceryHighlightGraphics.setDepth(100);
+
+    this.sorceryFirstTargetGraphics = this.add.graphics();
+    this.sorceryFirstTargetGraphics.setDepth(101);
 
 
 
@@ -153,6 +163,23 @@ export class GameScene extends Phaser.Scene {
             return;
           }
 
+          // During sorcery targeting mode, handle unit clicks as sorcery targets
+          if (store.sorceryModeActive && store.selectedSorceryCard) {
+            const excludedOccupantId = store.selectedSorceryCard.id === 's18' ? store.sorceryFirstTarget : undefined;
+            const isValidSorceryTarget = this.isValidSorceryOccupantTarget(
+              cell.occupantId,
+              store.selectedSorceryCard.id,
+              gameState,
+              store.playerId,
+              excludedOccupantId
+            );
+
+            if (isValidSorceryTarget) {
+              this.handleSorceryTarget(cell.occupantId);
+            }
+            return;
+          }
+
           // Find the unit at this position
 
           for (const player of gameState.players) {
@@ -163,9 +190,19 @@ export class GameScene extends Phaser.Scene {
 
               if (unitInstanceId === cell.occupantId && unit.position && unit.position.x === pos.x && unit.position.y === pos.y) {
 
-                // Only allow selecting own units
+                const isMobileUiMode = store.mobileUiMode;
+
+                // Mobile mode: expose tapped unit data for inspection
+                if (isMobileUiMode) {
+                  store.setHoveredCard(unit.card, unit);
+                }
+
+                // Opponent units are view-only (no selection/actions)
                 if (unit.ownerId !== store.playerId) {
-                  return; // Ignore clicks on opponent units
+                  if (isMobileUiMode) {
+                    store.selectUnit(null);
+                  }
+                  return;
                 }
 
                 // Handle unit click
@@ -173,6 +210,9 @@ export class GameScene extends Phaser.Scene {
                 if (store.selectedUnitId === unit.card.id) {
 
                   store.selectUnit(null);
+                  if (isMobileUiMode) {
+                    store.clearHoveredCard();
+                  }
 
                 } else {
 
@@ -266,15 +306,19 @@ export class GameScene extends Phaser.Scene {
       this.drawAttackHighlights();
     }
 
+    this.drawSorceryHighlights();
+    this.drawSorceryFirstTarget();
+
   }
 
 
 
   private updateFromStore() {
-
     const state = useGameStore.getState().gameState;
 
-    if (!state) return;
+    if (!state) {
+      return;
+    }
 
 
 
@@ -289,6 +333,10 @@ export class GameScene extends Phaser.Scene {
     this.drawDeploymentHighlights();
 
     this.drawAttackHighlights();
+
+    this.drawSorceryHighlights();
+
+    this.drawSorceryFirstTarget();
 
   }
 
@@ -336,31 +384,12 @@ export class GameScene extends Phaser.Scene {
 
     
 
-    // CRITICAL FIX: Use getVisibleUnits() to get ALL active units from ALL players
-
     const visibleUnits = VisibilityEngine.getVisibleUnits(state);
 
     
 
-    // Debug logging to verify visibility system
-
-    console.log('VISIBLE UNITS:', visibleUnits.map(u => ({
-
-      id: u.card.id,
-
-      owner: u.ownerId,
-
-      color: u.color,
-
-      position: { x: u.position!.x, y: u.position!.y }
-
-    })));
-
-
-
     visibleUnits.forEach((unit: UnitInstance) => {
 
-      // Use unique instance ID to prevent sprite collision between players
 
       const unitInstanceId = `${unit.ownerId}-${unit.card.id}`;
 
@@ -645,6 +674,147 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private drawSorceryHighlights() {
+    if (!this.sorceryHighlightGraphics) return;
+
+    this.sorceryHighlightGraphics.clear();
+
+    const store = useGameStore.getState();
+    const { sorceryModeActive, selectedSorceryCard, gameState, playerId, sorceryFirstTarget } = store;
+
+    if (!sorceryModeActive || !selectedSorceryCard || !gameState || !playerId) return;
+
+    // Calculate valid targets for the selected sorcery card
+    const excludedOccupantId = selectedSorceryCard.id === 's18' ? sorceryFirstTarget : undefined;
+    const validTargets = this.getValidSorceryTargets(selectedSorceryCard.id, gameState, playerId, excludedOccupantId);
+
+    if (validTargets.length === 0) return;
+
+    // Blinking white outline for sorcery targets (similar to ability highlights)
+    const wave = Math.sin(this.time.now / 250);
+    const visible = wave > -0.3;
+    if (!visible) return;
+
+    const strokeAlpha = 0.6 + (wave * 0.5 + 0.5) * 0.4;
+
+    validTargets.forEach((pos) => {
+      const px = pos.x * CELL_SIZE;
+      const py = pos.y * CELL_SIZE;
+
+      // Draw thick white outline around the unit cell (no fill)
+      this.sorceryHighlightGraphics!.lineStyle(3, ABILITY_HIGHLIGHT_COLOR, strokeAlpha);
+      this.sorceryHighlightGraphics!.strokeRect(px + 3, py + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+    });
+  }
+
+  private getValidSorceryTargets(cardId: string, gameState: GameState, playerId: string, excludedOccupantId?: string | null): Position[] {
+    const validTargets: Position[] = [];
+    const currentPlayer = gameState.players.find(p => p.id === playerId);
+    if (!currentPlayer) return validTargets;
+
+    // Sorcery cards that don't require a target
+    const nonTargetCards = new Set(['s03', 's09', 's10', 's16', 's17', 's19', 's21']);
+    if (nonTargetCards.has(cardId)) return validTargets;
+
+    // Determine valid targets based on card type
+    for (const player of gameState.players) {
+      for (const unit of player.units) {
+        if (!unit.position) continue;
+
+        const occupantId = `${player.id}-${unit.card.id}`;
+        if (excludedOccupantId && occupantId === excludedOccupantId) {
+          continue;
+        }
+
+        const isFriendly = player.id === playerId;
+        const isEnemy = !isFriendly;
+
+        // Damage spells that target enemies
+        if (['s01', 's04', 's08', 's12', 's22'].includes(cardId)) {
+          if (isEnemy) {
+            validTargets.push(unit.position);
+          }
+        }
+        // Heal/buff spells that target friendlies
+        else if (['s02', 's05', 's06', 's11', 's13', 's14', 's20'].includes(cardId)) {
+          if (isFriendly) {
+            validTargets.push(unit.position);
+          }
+        }
+        // Debuff spells that target enemies
+        else if (['s07', 's15'].includes(cardId)) {
+          if (isEnemy) {
+            validTargets.push(unit.position);
+          }
+        }
+        // Dimensional Swap - can target any unit (friendly or enemy)
+        else if (['s18'].includes(cardId)) {
+          validTargets.push(unit.position);
+        }
+      }
+    }
+
+    return validTargets;
+  }
+
+  private getSorceryTargetByOccupantId(occupantId: string, gameState: GameState): { ownerId: string; unitId: string; unit: UnitInstance } | null {
+    for (const player of gameState.players) {
+      for (const unit of player.units) {
+        if (`${player.id}-${unit.card.id}` === occupantId) {
+          return { ownerId: player.id, unitId: unit.card.id, unit };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private getSorceryTargetPositionByOccupantId(occupantId: string, gameState: GameState): Position | null {
+    return this.getSorceryTargetByOccupantId(occupantId, gameState)?.unit.position ?? null;
+  }
+
+  private isValidSorceryOccupantTarget(
+    occupantId: string,
+    cardId: string,
+    gameState: GameState,
+    playerId: string | null,
+    excludedOccupantId?: string | null
+  ): boolean {
+    if (!playerId) return false;
+
+    const targetPosition = this.getSorceryTargetPositionByOccupantId(occupantId, gameState);
+    if (!targetPosition) return false;
+
+    const validTargets = this.getValidSorceryTargets(cardId, gameState, playerId, excludedOccupantId);
+    return validTargets.some(pos => pos.x === targetPosition.x && pos.y === targetPosition.y);
+  }
+
+  private drawSorceryFirstTarget() {
+    if (!this.sorceryFirstTargetGraphics) return;
+
+    this.sorceryFirstTargetGraphics.clear();
+
+    const store = useGameStore.getState();
+    const { sorceryFirstTarget, gameState } = store;
+
+    if (!sorceryFirstTarget || !gameState) return;
+
+    const target = this.getSorceryTargetByOccupantId(sorceryFirstTarget, gameState);
+    if (!target || !target.unit.position) return;
+
+    const pos = target.unit.position;
+    const px = pos.x * CELL_SIZE;
+    const py = pos.y * CELL_SIZE;
+
+    // Draw a distinctive highlight for the first selected unit (gold/yellow)
+    this.sorceryFirstTargetGraphics.lineStyle(4, 0xf59e0b, 1);
+    this.sorceryFirstTargetGraphics.strokeRect(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+
+    // Add a fill to make it more visible
+    this.sorceryFirstTargetGraphics.fillStyle(0xf59e0b, 0.3);
+    this.sorceryFirstTargetGraphics.fillRect(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+  }
+
 
 
   private handleCellClick(pos: Position) {
@@ -714,6 +884,12 @@ export class GameScene extends Phaser.Scene {
         store.exitAbilityMode();
 
         store.showMenuDuringMove();
+
+        // Also exit sorcery mode if active
+        if (store.sorceryModeActive) {
+          store.exitSorceryMode();
+          store.setError(null);
+        }
 
         return;
 
@@ -790,6 +966,12 @@ export class GameScene extends Phaser.Scene {
 
       store.selectUnit(null);
 
+      // Also exit sorcery mode if active
+      if (store.sorceryModeActive) {
+        store.exitSorceryMode();
+        store.setError(null);
+      }
+
       store.clearValidMoves();
 
       store.exitMoveMode();
@@ -832,14 +1014,122 @@ export class GameScene extends Phaser.Scene {
 
       store.clearAbilityTargets();
 
-      store.exitAttackMode();
-
-      store.clearAttackTargets();
-
-      store.showMenuDuringMove();
-
     }
 
+    if (store.mobileUiMode) {
+      store.clearHoveredCard();
+    }
+
+  }
+
+
+
+  private handleSorceryTarget(occupantId: string | null) {
+    if (!occupantId) return;
+
+    const store = useGameStore.getState();
+    const { selectedSorceryCard, gameState, playerId, sorceryModeActive, sorceryFirstTarget } = store;
+
+    // Validate sorcery mode is active
+    if (!sorceryModeActive) {
+      store.setError('Sorcery mode is not active');
+      return;
+    }
+
+    if (!selectedSorceryCard) {
+      store.setError('No sorcery card selected');
+      store.exitSorceryMode();
+      return;
+    }
+
+    if (!gameState || !playerId) {
+      store.setError('Game state or player ID not available');
+      store.exitSorceryMode();
+      return;
+    }
+
+    const currentPlayerId = gameState.players[gameState.currentPlayerIndex]?.id;
+    if (gameState.turnPhase !== TurnPhase.ABILITY || currentPlayerId !== playerId) {
+      store.setError('Sorcery can only be used during your Ability Phase');
+      store.exitSorceryMode();
+      return;
+    }
+
+    const target = this.getSorceryTargetByOccupantId(occupantId, gameState);
+    if (!target || !target.unit.position) {
+      store.setError('Target unit not found or not on board');
+      store.exitSorceryMode();
+      return;
+    }
+
+    const { ownerId: targetOwnerId, unitId: targetUnitId, unit: targetUnit } = target;
+
+    const excludedOccupantId = selectedSorceryCard.id === 's18' ? sorceryFirstTarget : undefined;
+
+    // Validate that the target is a valid sorcery target for this card
+    const validTargets = this.getValidSorceryTargets(selectedSorceryCard.id, gameState, playerId, excludedOccupantId);
+
+    const isValidTarget = validTargets.some(
+      pos => pos.x === targetUnit.position!.x && pos.y === targetUnit.position!.y
+    );
+
+    if (!isValidTarget) {
+      store.setError('Invalid target for this sorcery card');
+      return;
+    }
+
+    // Handle Dimensional Swap (s18) - requires two targets
+    if (selectedSorceryCard.id === 's18') {
+      if (!sorceryFirstTarget) {
+        // First target selected - store it and wait for second
+        store.setSorceryFirstTarget(occupantId);
+        store.setError(`First unit selected. Select second unit to swap.`);
+        return;
+      } else {
+        // Second target selected - execute swap
+        const firstTarget = this.getSorceryTargetByOccupantId(sorceryFirstTarget, gameState);
+        if (!firstTarget) {
+          store.setError('Invalid first target');
+          store.exitSorceryMode();
+          return;
+        }
+
+        const { ownerId: firstOwnerId, unitId: firstUnitId } = firstTarget;
+
+        // Prevent selecting the same unit twice
+        if (sorceryFirstTarget === occupantId) {
+          store.setError('Cannot swap a unit with itself');
+          return;
+        }
+
+        // Send the PLAY_SORCERY intent with both targets
+        sendIntent({
+          type: IntentType.PLAY_SORCERY,
+          cardId: selectedSorceryCard.id,
+          targetUnitId: firstUnitId,
+          targetOwnerId: firstOwnerId,
+          targetUnitId2: targetUnitId,
+          targetOwnerId2: targetOwnerId,
+        });
+
+        // Exit sorcery mode after sending
+        store.exitSorceryMode();
+        store.setError(null);
+        return;
+      }
+    }
+
+    // Send the PLAY_SORCERY intent with the target (for single-target sorceries)
+    sendIntent({
+      type: IntentType.PLAY_SORCERY,
+      cardId: selectedSorceryCard.id,
+      targetUnitId,
+      targetOwnerId,
+    });
+
+    // Exit sorcery mode after sending
+    store.exitSorceryMode();
+    store.setError(null);
   }
 
 
@@ -969,4 +1259,5 @@ export class GameScene extends Phaser.Scene {
   }
 
 }
+
 

@@ -13,9 +13,10 @@ export function deductLife(player: PlayerState, cost: number): Result<PlayerStat
     };
   }
 
+  const newLife = player.life - cost;
   return {
     ok: true,
-    value: { ...player, life: player.life - cost },
+    value: { ...player, life: newLife, isEliminated: newLife <= 0 },
   };
 }
 

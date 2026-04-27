@@ -4,8 +4,28 @@ import type { AbilityTarget } from '@mugen/shared/src/engines/ability/index.js';
 import type { AttackTarget } from '@mugen/shared/src/engines/combat/index.js';
 import { MAX_HAND_SIZE } from '@mugen/shared';
 import { getVisibleUnits } from '@mugen/shared/src/engines/visibility/index.js';
+import { shouldTriggerStandbyPhase } from '@mugen/shared/src/engines/standby/index.js';
+import { diffAndLog } from '../utils/game-log.js';
 
 export type Screen = 'main-menu' | 'deck-builder' | 'card-library' | 'deck-select' | 'lobby' | 'pregame' | 'game' | 'gameover';
+
+const MOBILE_UI_SESSION_KEY = 'mugen-mobile-ui-mode';
+
+function readInitialMobileUiMode(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.sessionStorage.getItem(MOBILE_UI_SESSION_KEY) === '1';
+}
+
+function persistMobileUiMode(enabled: boolean): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.setItem(MOBILE_UI_SESSION_KEY, enabled ? '1' : '0');
+}
 
 export interface GameStore {
   // Connection
@@ -13,6 +33,12 @@ export interface GameStore {
   playerName: string;
   lobbyCode: string | null;
   screen: Screen;
+
+  // Game initialization lock
+  isGameInitialized: boolean;
+
+  // UI mode
+  mobileUiMode: boolean;
 
   // Lobby
   lobbyPlayers: { id: string; name: string; isReady: boolean }[];
@@ -32,6 +58,10 @@ export interface GameStore {
   attackModeActive: boolean;
   attackTargets: AttackTarget[];
   deploymentModeActive: boolean;
+  sorceryModeActive: boolean;
+  selectedSorceryCard: Card | null;
+  sorceryRequiresTarget: boolean;
+  sorceryFirstTarget: string | null; // For two-target sorceries like Dimensional Swap
   selectedBenchUnit: UnitCard | null;
   hoveredCard: Card | null;
   hoveredUnitInstance: UnitInstance | null;
@@ -51,17 +81,30 @@ export interface GameStore {
   standbyModalDismissed: boolean;
   canSelectBenchUnits: boolean;
 
+  // Summon to bench modal
+  summonModalOpen: boolean;
+  summonModalDismissed: boolean;
+
+  // Player defeat modal
+  playerDefeatedModalOpen: boolean;
+  isSpectating: boolean;
+
   // Queue/Ready state
   isPlayerReady: boolean;
   readyPlayersCount: number;
   totalPlayersCount: number;
   isWaitingForOthers: boolean;
 
+  // Game log
+  gameLogs: string[];
+
   // Actions
   setPlayerId: (id: string) => void;
   setPlayerName: (name: string) => void;
   setLobbyCode: (code: string | null) => void;
   setScreen: (screen: Screen) => void;
+  setMobileUiMode: (enabled: boolean) => void;
+  toggleMobileUiMode: () => void;
   setLobbyPlayers: (players: { id: string; name: string; isReady: boolean }[]) => void;
   setGameState: (state: GameState) => void;
   selectUnit: (unitId: string | null) => void;
@@ -79,6 +122,10 @@ export interface GameStore {
   exitAttackMode: () => void;
   setAttackTargets: (targets: AttackTarget[]) => void;
   clearAttackTargets: () => void;
+  enterSorceryMode: (card: Card, requiresTarget: boolean) => void;
+  exitSorceryMode: () => void;
+  setSelectedSorceryCard: (card: Card | null) => void;
+  setSorceryFirstTarget: (target: string | null) => void;
   enterDeploymentMode: (benchUnit: UnitCard) => void;
   exitDeploymentMode: () => void;
   setSelectedBenchUnit: (unit: UnitCard | null) => void;
@@ -101,7 +148,14 @@ export interface GameStore {
   closeStandbyModal: () => void;
   resetStandbyModal: () => void;
   setCanSelectBenchUnits: (canSelect: boolean) => void;
+  openSummonModal: () => void;
+  closeSummonModal: () => void;
+  skipSummonModal: () => void;
+  openPlayerDefeatedModal: () => void;
+  closePlayerDefeatedModal: () => void;
+  setSpectating: (spectating: boolean) => void;
   setQueueStatus: (isReady: boolean, readyCount: number, totalCount: number, waiting: boolean) => void;
+  addGameLog: (message: string) => void;
   reset: () => void;
 }
 
@@ -110,6 +164,8 @@ const initialState = {
   playerName: '',
   lobbyCode: null,
   screen: 'main-menu' as Screen,
+  isGameInitialized: false,
+  mobileUiMode: readInitialMobileUiMode(),
   lobbyPlayers: [],
   selectedDeck: null,
   startingUnits: [],
@@ -123,6 +179,10 @@ const initialState = {
   attackModeActive: false,
   attackTargets: [],
   deploymentModeActive: false,
+  sorceryModeActive: false,
+  selectedSorceryCard: null,
+  sorceryRequiresTarget: false,
+  sorceryFirstTarget: null,
   selectedBenchUnit: null,
   hoveredCard: null,
   hoveredUnitInstance: null,
@@ -137,10 +197,15 @@ const initialState = {
   standbyModalOpen: false,
   standbyModalDismissed: false,
   canSelectBenchUnits: false,
+  summonModalOpen: false,
+  summonModalDismissed: false,
+  playerDefeatedModalOpen: false,
+  isSpectating: false,
   isPlayerReady: false,
   readyPlayersCount: 0,
   totalPlayersCount: 0,
   isWaitingForOthers: false,
+  gameLogs: [],
 };
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -150,38 +215,122 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setPlayerName: (name) => set({ playerName: name }),
   setLobbyCode: (code) => set({ lobbyCode: code }),
   setScreen: (screen) => set({ screen }),
+  setMobileUiMode: (enabled) => {
+    persistMobileUiMode(enabled);
+    set({ mobileUiMode: enabled });
+  },
+  toggleMobileUiMode: () => {
+    const nextMode = !get().mobileUiMode;
+    persistMobileUiMode(nextMode);
+    set({ mobileUiMode: nextMode });
+  },
   setLobbyPlayers: (players) => set({ lobbyPlayers: players }),
+  addGameLog: (message) => set((s) => ({ gameLogs: [...s.gameLogs, message] })),
+
   setGameState: (state) => {
-    console.log('GameStore: setGameState called with:', state?.phase);
-    console.log('GameStore: playerId:', get().playerId);
-    
+    const playerId = get().playerId;
+    const prevGameState = get().gameState;
+
+    if (!state) {
+      set({ gameState: null, screen: 'main-menu' });
+      return;
+    }
+
     // Clear selected deck when transitioning to IN_PROGRESS phase (game actually starts)
     const currentScreen = get().screen;
     if (state && state.phase === 'IN_PROGRESS' && currentScreen === 'pregame') {
       set({ selectedDeck: null });
     }
-    
-    set({ gameState: state });
-    
+
+    // CRITICAL: Populate selectedDeck from game state if it's null and we're in PRE_GAME phase
+    // This ensures the deck is available for unit selection when the game starts
+    if (state.phase === 'PRE_GAME' && playerId) {
+      const currentPlayer = state.players.find(p => p.id === playerId);
+      if (currentPlayer) {
+        // Try multiple sources for the deck data
+        let deckCards: any[] = [];
+        
+        // First try deck.cards (where it's stored during PRE_GAME)
+        if (currentPlayer.deck && currentPlayer.deck.cards.length > 0) {
+          deckCards = currentPlayer.deck.cards;
+        }
+        // Fallback to mainDeck.cards (where it might be after initialization)
+        else if (currentPlayer.mainDeck && currentPlayer.mainDeck.cards.length > 0) {
+          deckCards = currentPlayer.mainDeck.cards;
+        }
+        
+        if (deckCards.length > 0) {
+          set({ selectedDeck: deckCards });
+        }
+      }
+    }
+
+    // CRITICAL: Automatically set screen based on game phase to prevent blank screen
+    let newScreen = currentScreen;
+    if (state.phase === 'IN_PROGRESS' && currentScreen !== 'game') {
+      newScreen = 'game';
+    } else if (state.phase === 'PRE_GAME' && currentScreen !== 'pregame') {
+      newScreen = 'pregame';
+    } else if (state.phase === 'ENDED' && currentScreen !== 'gameover') {
+      newScreen = 'gameover';
+    }
+
+    // Log initial board state on first IN_PROGRESS transition
+    if (state.phase === 'IN_PROGRESS' && (!prevGameState || prevGameState.phase !== 'IN_PROGRESS')) {
+      get().addGameLog('[GAME STARTED]');
+      for (const player of state.players) {
+        const label = `[${player.name.toUpperCase()}]`;
+        for (const unit of player.team.activeUnits) {
+          get().addGameLog(`${label}: ${unit.name.toUpperCase()} HAS BEEN DEPLOYED TO THE FIELD`);
+        }
+      }
+    }
+
+    set({ gameState: state, screen: newScreen });
+
     // Sync active and bench units from server-authoritative state
-    const playerId = get().playerId;
     if (state && playerId) {
+      // Exit sorcery mode if phase changes away from ABILITY or it's no longer our turn
+      const isLocalPlayersTurnForSorcery = state.players[state.currentPlayerIndex]?.id === playerId;
+      if (get().sorceryModeActive && (state.turnPhase !== 'ABILITY' || !isLocalPlayersTurnForSorcery)) {
+        get().exitSorceryMode();
+        get().setError(null);
+      }
+
+      // FAILSAFE: Validate and correct player life/isEliminated state before processing
+      const validatedPlayers = state.players.map(p => {
+        // If life is undefined, null, or <= 0 during initialization, correct it
+        if (p.life === undefined || p.life === null || p.life <= 0) {
+          return { ...p, life: 24, isEliminated: false };
+        }
+        // If isEliminated is true during first turn, correct it
+        if (p.isEliminated && state.turnNumber === 1) {
+          return { ...p, isEliminated: false };
+        }
+        return p;
+      });
+
+      // Update state with validated players if corrections were made
+      if (validatedPlayers.some((p, i) => p.life !== state.players[i]?.life || p.isEliminated !== state.players[i]?.isEliminated)) {
+        state = { ...state, players: validatedPlayers };
+      }
+
+      // Centralized deterministic game log: diff previous vs current state
+      if (prevGameState && prevGameState.phase === 'IN_PROGRESS' && state.phase === 'IN_PROGRESS') {
+        diffAndLog(prevGameState, state, (msg) => get().addGameLog(msg));
+      }
+
+      // CRITICAL: Use the corrected state for all subsequent operations
       // activeUnits = ONLY visible active units on board (filtered by getVisibleUnits)
       const visibleActiveUnits = getVisibleUnits(state);
-      
+
       // benchUnits = local player's reserve units only
       const currentPlayer = state.players.find(p => p.id === playerId);
       const bench = currentPlayer ? currentPlayer.team.reserveUnits : [];
       
-      console.log('GameStore: Setting activeUnits from getVisibleUnits:', visibleActiveUnits.length);
-      console.log('GameStore: Bench units for local player:', bench.length);
-      
       // Sync mainDeck and discardPile from server state
       const playerMainDeck = currentPlayer?.mainDeck?.cards ?? [];
       const playerDiscardPile = currentPlayer?.discardPile?.cards ?? [];
-
-      console.log('GameStore: currentPlayer mainDeck:', currentPlayer?.mainDeck);
-      console.log('GameStore: Setting mainDeck with cards:', playerMainDeck.length);
 
       set({ 
         activeUnits: visibleActiveUnits,
@@ -201,36 +350,100 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // Each player (1–4) has separate units; never count other players' units.
       const isMyTurn = state.players[state.currentPlayerIndex]?.id === playerId;
       if (state.turnPhase === 'STANDBY' && isMyTurn && currentPlayer) {
-        const myActiveOnBoard = currentPlayer.units.filter(u => 
-          u.position !== null && 
-          u.position!.x >= 0 && 
-          u.position!.x < state.board.width && 
-          u.position!.y >= 0 && 
+        const myActiveOnBoard = currentPlayer.units.filter(u =>
+          u.position !== null &&
+          u.position!.x >= 0 &&
+          u.position!.x < state.board.width &&
+          u.position!.y >= 0 &&
           u.position!.y < state.board.height
         ).length;
         const hasBench = currentPlayer.team.reserveUnits.length > 0;
         if (myActiveOnBoard < 3 && hasBench && !get().standbyModalNotification && !get().standbyModalOpen && !get().standbyModalDismissed) {
           set({ standbyModalNotification: true }); // Trigger notification first
         }
+        // Check if summon-to-bench step is available (step 3 of standby)
+        const standbyStatus = shouldTriggerStandbyPhase(currentPlayer, state.board.width, state.board.height);
+        if (standbyStatus.canSummonToBench && !get().summonModalOpen && !get().summonModalDismissed) {
+          // Only show summon modal after standby deploy is resolved
+          if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard) {
+            set({ summonModalOpen: true });
+          }
+        }
       } else if (state.turnPhase !== 'STANDBY' || !isMyTurn) {
         // Reset standby modal state when leaving standby phase or when it's not our turn
         if (get().standbyModalNotification || get().standbyModalOpen || get().standbyModalDismissed) {
           set({ standbyModalNotification: false, standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false });
         }
+        // Reset summon modal state
+        if (get().summonModalOpen || get().summonModalDismissed) {
+          set({ summonModalOpen: false, summonModalDismissed: false });
+        }
+      }
+
+      // Player defeat detection: show modal when local player is eliminated
+      // INITIALIZATION LOCK: Only check for defeat after game is fully initialized
+      const shouldMarkInitialized = state.phase === 'IN_PROGRESS' && state.turnNumber === 1 && !get().isGameInitialized;
+      if (shouldMarkInitialized) {
+        set({ isGameInitialized: true });
+      }
+
+      // SAFEGUARD: Never show defeat modal if game is not yet initialized
+      if (!get().isGameInitialized && currentPlayer?.isEliminated) {
+        const correctedPlayers = state.players.map(p =>
+          p.id === currentPlayer.id ? { ...p, isEliminated: false, life: p.life > 0 ? p.life : 24 } : p
+        );
+        set({ gameState: { ...state, players: correctedPlayers } });
+        return; // Exit early to prevent modal from showing
+      }
+
+      // Additional safeguard: Never show defeat modal on turn 1 regardless of phase
+      if (state.turnNumber === 1 && currentPlayer?.isEliminated) {
+        const correctedPlayers = state.players.map(p =>
+          p.id === currentPlayer.id ? { ...p, isEliminated: false, life: p.life > 0 ? p.life : 24 } : p
+        );
+        set({ gameState: { ...state, players: correctedPlayers } });
+        return; // Exit early to prevent modal from showing
+      }
+
+      if (currentPlayer && currentPlayer.isEliminated && !get().playerDefeatedModalOpen && state.phase === 'IN_PROGRESS' && get().isGameInitialized) {
+        set({ playerDefeatedModalOpen: true });
       }
     }
   },
-  selectUnit: (unitId) => set({ selectedUnitId: unitId, moveModeActive: false, menuHiddenDuringMove: false, validMoves: [], abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [] }),
-  enterMoveMode: () => set({ moveModeActive: true, abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [] }),
+  selectUnit: (unitId) => set({ selectedUnitId: unitId, moveModeActive: false, menuHiddenDuringMove: false, validMoves: [], abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
+  enterMoveMode: () => set({ moveModeActive: true, abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
   exitMoveMode: () => set({ moveModeActive: false, menuHiddenDuringMove: false, validMoves: [] }),
-  enterAbilityMode: () => set({ abilityModeActive: true, moveModeActive: false, validMoves: [], attackModeActive: false, attackTargets: [] }),
+  enterAbilityMode: () => set({ abilityModeActive: true, moveModeActive: false, validMoves: [], attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
   exitAbilityMode: () => set({ abilityModeActive: false, abilityTargets: [] }),
   setAbilityTargets: (targets) => set({ abilityTargets: targets }),
   clearAbilityTargets: () => set({ abilityTargets: [] }),
-  enterAttackMode: () => set({ attackModeActive: true, moveModeActive: false, validMoves: [], abilityModeActive: false, abilityTargets: [] }),
+  enterAttackMode: () => set({ attackModeActive: true, moveModeActive: false, validMoves: [], abilityModeActive: false, abilityTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
   exitAttackMode: () => set({ attackModeActive: false, attackTargets: [] }),
   setAttackTargets: (targets) => set({ attackTargets: targets }),
   clearAttackTargets: () => set({ attackTargets: [] }),
+  enterSorceryMode: (card: Card, requiresTarget: boolean) => set({
+    sorceryModeActive: true,
+    selectedSorceryCard: card,
+    sorceryRequiresTarget: requiresTarget,
+    sorceryFirstTarget: null,
+    moveModeActive: false,
+    validMoves: [],
+    abilityModeActive: false,
+    abilityTargets: [],
+    attackModeActive: false,
+    attackTargets: [],
+    deploymentModeActive: false,
+    selectedBenchUnit: null,
+    selectedUnitId: null,
+  }),
+  exitSorceryMode: () => set({
+    sorceryModeActive: false,
+    selectedSorceryCard: null,
+    sorceryRequiresTarget: false,
+    sorceryFirstTarget: null,
+  }),
+  setSelectedSorceryCard: (card: Card | null) => set({ selectedSorceryCard: card }),
+  setSorceryFirstTarget: (target: string | null) => set({ sorceryFirstTarget: target }),
   enterDeploymentMode: (benchUnit) => set({ 
     deploymentModeActive: true, 
     selectedBenchUnit: benchUnit,
@@ -239,6 +452,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     abilityTargets: [], 
     attackModeActive: false, 
     attackTargets: [],
+    sorceryModeActive: false,
+    selectedSorceryCard: null,
+    sorceryRequiresTarget: false,
+    sorceryFirstTarget: null,
     selectedUnitId: null,
     validMoves: []
   }),
@@ -249,23 +466,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setValidMoves: (moves) => set({ validMoves: moves }),
   clearValidMoves: () => set({ validMoves: [] }),
   setSelectedDeck: (deck) => {
-    console.log('=== DEBUG: Client setSelectedDeck ===');
-    console.log('Setting selected deck with', deck?.length || 0, 'cards');
-    if (deck && deck.length > 0) {
-      console.log('First card:', deck[0]);
-    }
-    
     set({ selectedDeck: deck });
     // Send selected deck to server
     if (deck) {
-      console.log('Sending deck to server...');
       import('../network/socket-client.js').then(({ setSelectedDeck: sendDeck }) => {
-        console.log('About to send deck to server:', deck.length, 'cards');
         sendDeck(deck);
-        console.log('Deck sent to server');
       });
-    } else {
-      console.log('No deck to send to server');
     }
   },
   setStartingUnits: (units) => set({ startingUnits: units }),
@@ -285,7 +491,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     
     // Send to server for actual game initialization
-    console.log('Confirming starting units:', startingUnits);
     import('../network/socket-client.js').then(({ confirmStartingUnits }) => {
       confirmStartingUnits(startingUnits);
     });
@@ -303,18 +508,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
   closeHandLimitModal: () => set({ handLimitModalOpen: false }),
   showStandbyNotification: () => set({ standbyModalNotification: true, standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false }),
   openStandbyModal: () => set({ standbyModalNotification: false, standbyModalOpen: true, standbyModalDismissed: false, canSelectBenchUnits: false }),
-  closeStandbyModal: () => set({ 
-    standbyModalOpen: false, 
+  closeStandbyModal: () => set({
+    standbyModalOpen: false,
     standbyModalDismissed: true,
     canSelectBenchUnits: true // Enable bench unit selection after modal is dismissed
   }),
   resetStandbyModal: () => set({ standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false }),
   setCanSelectBenchUnits: (canSelect) => set({ canSelectBenchUnits: canSelect }),
+  openSummonModal: () => set({ summonModalOpen: true, summonModalDismissed: false }),
+  closeSummonModal: () => set({ summonModalOpen: false }),
+  skipSummonModal: () => set({ summonModalOpen: false, summonModalDismissed: true }),
+  openPlayerDefeatedModal: () => set({ playerDefeatedModalOpen: true }),
+  closePlayerDefeatedModal: () => set({ playerDefeatedModalOpen: false }),
+  setSpectating: (spectating) => set({ isSpectating: spectating }),
   setQueueStatus: (isReady, readyCount, totalCount, waiting) => set({ 
     isPlayerReady: isReady, 
     readyPlayersCount: readyCount, 
     totalPlayersCount: totalCount, 
     isWaitingForOthers: waiting 
   }),
-  reset: () => set(initialState),
+  reset: () => set({ ...initialState, mobileUiMode: readInitialMobileUiMode() }),
 }));

@@ -69,7 +69,15 @@ export type {
   AdvancePhaseIntent,
   DeployReserveIntent,
   DiscardCardIntent,
+  SummonToBenchIntent,
+  PlaySorceryIntent,
   ClientIntent,
   ActionResult,
   Result,
 } from './actions.js';
+
+export {
+  canPlaySorcery,
+  executeSorceryEffect,
+  discardSorceryCard,
+} from '../engines/sorcery/index.js';

@@ -5,7 +5,7 @@ import {
   createUnitInstance,
   createBoard,
 } from '../factories.js';
-import { startTurn, deployReserve, playCard } from '../../src/engines/turn/index.js';
+import { startTurn, deployReserve, playCard, advancePhase } from '../../src/engines/turn/index.js';
 import { TurnPhase } from '../../src/types/index.js';
 import { placeUnit } from '../../src/engines/board/index.js';
 import { createGame } from '../../src/engines/game/index.js';
@@ -251,13 +251,22 @@ describe('Standby Phase', () => {
     const newTurnState = startTurn(currentState);
     expect(newTurnState.turnPhase).toBe(TurnPhase.STANDBY);
 
-    // Discard one card should exit standby phase (now at limit of 5 cards)
+    // Discard one card — now at limit of 5 cards.
+    // Standby stays active because summon-to-bench is available (open bench slots + unit cards in hand + LP).
     const discardResult1 = playCard(newTurnState, 'p1', 'u1');
     expect(discardResult1.ok).toBe(true);
     if (discardResult1.ok) {
       console.log('After first discard - Hand size:', discardResult1.value.players[0]!.hand.cards.length);
       console.log('After first discard - Turn phase:', discardResult1.value.turnPhase);
-      expect(discardResult1.value.turnPhase).toBe(TurnPhase.MOVE);
+      // Stays in STANDBY because summon-to-bench step is now available (optional)
+      expect(discardResult1.value.turnPhase).toBe(TurnPhase.STANDBY);
+
+      // Player can advance past the optional summon step
+      const advanceResult = advancePhase(discardResult1.value);
+      expect(advanceResult.ok).toBe(true);
+      if (advanceResult.ok) {
+        expect(advanceResult.value.turnPhase).toBe(TurnPhase.MOVE);
+      }
     }
   });
 
@@ -287,7 +296,8 @@ describe('Standby Phase', () => {
     expect(status.isActive).toBe(true);
     expect(status.needsBenchDeployment).toBe(true);
     expect(status.needsHandDiscard).toBe(true);
-    expect(status.message).toBe('Please move a bench/reserved unit onto the field and discard down to the maximum limit.');
+    // With priority-based messaging, discard step shows first (step 1 before step 2)
+    expect(status.message).toBe('Hand size exceeded. Please discard down to the maximum limit.');
     expect(status.canProgress).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { GameState, ClientIntent, PlayerState, Result, SelectTeamIntent, DiscardCardIntent } from '@mugen/shared';
+import type { GameState, ClientIntent, PlayerState, Result, SelectTeamIntent, DiscardCardIntent, SummonToBenchIntent, PlaySorceryIntent } from '@mugen/shared';
 import {
   IntentType,
   GamePhase,
@@ -12,38 +12,70 @@ import {
   GameEngine,
   StartingPlacementEngine,
 } from '@mugen/shared';
+import { canPlaySorcery, executeSorceryEffect, discardSorceryCard } from '@mugen/shared';
 import type { Lobby } from '../lobby/lobby-manager.js';
 
+const NON_TARGET_SORCERY_IDS = new Set(['s03', 's09', 's10', 's16', 's17', 's19', 's21']);
+
+function validateSorceryIntentTargets(cardId: string, intent: PlaySorceryIntent): Result<null> {
+  if (NON_TARGET_SORCERY_IDS.has(cardId)) {
+    return { ok: true, value: null };
+  }
+
+  if (cardId === 's18') {
+    if (!intent.targetUnitId || !intent.targetOwnerId || !intent.targetUnitId2 || !intent.targetOwnerId2) {
+      return { ok: false, error: 'Dimensional Swap requires two complete targets' };
+    }
+
+    if (intent.targetUnitId === intent.targetUnitId2 && intent.targetOwnerId === intent.targetOwnerId2) {
+      return { ok: false, error: 'Cannot swap a unit with itself' };
+    }
+
+    return { ok: true, value: null };
+  }
+
+  if (!intent.targetUnitId || !intent.targetOwnerId) {
+    return { ok: false, error: `Sorcery ${cardId} requires a target unit and target owner` };
+  }
+
+  return { ok: true, value: null };
+}
+
 export function createInitialGameState(lobby: Lobby): Result<GameState> {
-  const players: PlayerState[] = lobby.players.map((lp) => ({
-    id: lp.id,
-    name: lp.name,
-    life: STARTING_LIFE,
-    maxLife: STARTING_LIFE,
-    team: { activeUnits: [], reserveUnits: [], locked: false },
-    units: [],
-    hand: { cards: [] },
-    deck: { cards: lp.selectedDeck }, // Put the 16-card deck in the deck field for processing
-    mainDeck: { cards: [] }, // Let GameEngine.createGame populate this
-    discardPile: { cards: [] }, // Let GameEngine.createGame populate this
-    isEliminated: false,
-    isReady: lp.isReady,
-    isConnected: true,
-    reserveLockedUntilNextTurn: false,
-  }));
+  const players: PlayerState[] = lobby.players.map((lp) => {
+    const player = {
+      id: lp.id,
+      name: lp.name,
+      life: STARTING_LIFE,
+      maxLife: STARTING_LIFE,
+      team: { activeUnits: [], reserveUnits: [], locked: false },
+      units: [],
+      hand: { cards: [] },
+      deck: { cards: lp.selectedDeck }, // Put the 16-card deck in the deck field for processing
+      mainDeck: { cards: [] }, // Let GameEngine.createGame populate this
+      discardPile: { cards: [] }, // Let GameEngine.createGame populate this
+      isEliminated: false,
+      isReady: lp.isReady,
+      isConnected: true,
+      reserveLockedUntilNextTurn: false,
+    };
+    return player;
+  });
 
   const gameResult = GameEngine.createGame(players);
   if (!gameResult.ok) {
     return gameResult;
   }
 
-  return {
+  const result = {
     ok: true,
     value: {
       ...gameResult.value,
       phase: GamePhase.PRE_GAME,
     },
-  };
+  } as const;
+
+  return result;
 }
 
 export function resolveIntent(
@@ -190,6 +222,47 @@ function resolveGameIntent(
 
     case IntentType.DEPLOY_RESERVE:
       return TurnEngine.deployReserve(state, playerId, intent.unitId, intent.position);
+
+    case IntentType.SUMMON_TO_BENCH:
+      return TurnEngine.summonToBench(state, playerId, (intent as SummonToBenchIntent).cardId);
+
+    case IntentType.PLAY_SORCERY: {
+      const sorceryIntent = intent as PlaySorceryIntent;
+      
+      // Validate that the sorcery can be played
+      const validation = canPlaySorcery(state, playerId, sorceryIntent.cardId);
+      if (!validation.ok) {
+        return { ok: false, error: validation.error };
+      }
+
+      const { card, playerIndex } = validation.value;
+
+      // Validate target payload shape before effect execution
+      const targetValidation = validateSorceryIntentTargets(card.id, sorceryIntent);
+      if (!targetValidation.ok) {
+        return { ok: false, error: targetValidation.error };
+      }
+
+      // Execute the sorcery effect
+      const effectResult = executeSorceryEffect(
+        state,
+        playerId,
+        card,
+        sorceryIntent.targetUnitId,
+        sorceryIntent.targetOwnerId,
+        sorceryIntent.targetUnitId2,
+        sorceryIntent.targetOwnerId2
+      );
+
+      if (!effectResult.ok) {
+        return { ok: false, error: effectResult.error };
+      }
+
+      // Discard the sorcery card after effect resolves
+      const finalState = discardSorceryCard(effectResult.value, playerIndex, card);
+
+      return { ok: true, value: finalState };
+    }
 
     default:
       return { ok: false, error: `Unknown intent type: ${(intent as ClientIntent).type}` };

@@ -18,12 +18,15 @@ export interface UnitInstance {
 export interface CombatModifier {
   type: CombatModifierType;
   duration: number;
+  value?: number;
 }
 
 export enum CombatModifierType {
   NO_COUNTERATTACK = 'NO_COUNTERATTACK',
   ATK_BUFF = 'ATK_BUFF',
   HP_BUFF = 'HP_BUFF',
+  ATK_DEBUFF = 'ATK_DEBUFF',
+  MOVEMENT_DEBUFF = 'MOVEMENT_DEBUFF',
 }
 
 export interface PlayerTeam {

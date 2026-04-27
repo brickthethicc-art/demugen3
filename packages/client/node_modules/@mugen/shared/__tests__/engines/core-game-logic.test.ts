@@ -738,7 +738,7 @@ describe('4. Bench Unit Management', () => {
       const deployed = result.value.players[0]!.units.find((u: UnitInstance) => u.card.id === 'r1');
       expect(deployed).toBeDefined();
       expect(deployed!.position).toEqual({ x: 3, y: 3 });
-      expect(result.value.board.cells[3]![3]!.occupantId).toBe('r1');
+      expect(result.value.board.cells[3]![3]!.occupantId).toBe('p1-r1');
     }
   });
 

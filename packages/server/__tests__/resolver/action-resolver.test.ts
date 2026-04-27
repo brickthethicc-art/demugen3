@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveIntent, createInitialGameState } from '../../src/resolver/action-resolver.js';
-import { IntentType, GamePhase, TurnPhase } from '@mugen/shared';
+import { IntentType, GamePhase, TurnPhase, CardType } from '@mugen/shared';
 import type { GameState, ClientIntent } from '@mugen/shared';
 import type { Lobby } from '../../src/lobby/lobby-manager.js';
 
@@ -93,6 +93,45 @@ describe('ActionResolver', () => {
       const intent: ClientIntent = { type: IntentType.ADVANCE_PHASE };
       const result = resolveIntent(state, 'p1', intent);
       expect(result.ok).toBe(false);
+    });
+
+    it('PLAY_SORCERY — rejects targeted sorcery without owner-scoped target payload', () => {
+      const state: GameState = {
+        ...gameState,
+        phase: GamePhase.IN_PROGRESS,
+        turnPhase: TurnPhase.ABILITY,
+        currentPlayerIndex: 0,
+        players: gameState.players.map((player, index) => {
+          if (index === 0) {
+            return {
+              ...player,
+              hand: {
+                cards: [
+                  {
+                    id: 's01',
+                    name: 'Quick Strike',
+                    cardType: CardType.SORCERY,
+                    cost: 1,
+                    effect: 'Deal 2 damage to target unit',
+                  },
+                ],
+              },
+            };
+          }
+          return player;
+        }),
+      };
+
+      const intent: ClientIntent = {
+        type: IntentType.PLAY_SORCERY,
+        cardId: 's01',
+      } as ClientIntent;
+
+      const result = resolveIntent(state, 'p1', intent);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('requires a target unit and target owner');
+      }
     });
   });
 });

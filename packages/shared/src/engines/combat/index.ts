@@ -1,5 +1,6 @@
 import type { UnitInstance, Position } from '../../types/index.js';
 import { CombatModifierType } from '../../types/index.js';
+import { chebyshevDistance } from '../../utils/position.js';
 
 export interface CombatResult {
   attacker: UnitInstance;
@@ -21,10 +22,6 @@ export interface AttackTarget {
   unitId: string;
   ownerId: string;
   position: Position;
-}
-
-function chebyshevDistance(a: Position, b: Position): number {
-  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
 export function getAttackTargets(
@@ -60,14 +57,22 @@ export function resolveCombat(
   attacker: UnitInstance,
   defender: UnitInstance
 ): CombatResult {
-  const attackerAtk = attacker.card.atk;
+  const atkBuff = attacker.combatModifiers
+    .filter((m) => m.type === CombatModifierType.ATK_BUFF)
+    .reduce((sum, m) => sum + (m.value || 0), 0);
+
+  const atkDebuff = attacker.combatModifiers
+    .filter((m) => m.type === CombatModifierType.ATK_DEBUFF)
+    .reduce((sum, m) => sum + (m.value || 0), 0);
+
+  const attackerAtk = attacker.card.atk + atkBuff - atkDebuff;
   const defenderAtk = defender.card.atk;
 
   const hasNoCounterattack = attacker.combatModifiers.some(
     (m) => m.type === CombatModifierType.NO_COUNTERATTACK
   );
 
-  const damageToDefender = attackerAtk;
+  const damageToDefender = Math.max(0, attackerAtk);
   const damageToAttacker = hasNoCounterattack ? 0 : defenderAtk;
 
   const newAttackerHp = Math.max(0, attacker.currentHp - damageToAttacker);

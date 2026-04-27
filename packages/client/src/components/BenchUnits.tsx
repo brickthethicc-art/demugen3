@@ -10,6 +10,7 @@ export function BenchUnits() {
   const { handleMouseEnter, handleMouseLeave } = useUnitHover();
   const { enterDeploymentMode } = useGameStore();
   const canSelectBenchUnits = useGameStore(state => state.canSelectBenchUnits);
+  const isSpectating = useGameStore(state => state.isSpectating);
   
   // Check if it's the player's turn and they can deploy reserves
   const isMyTurn = gameState?.players[gameState.currentPlayerIndex]?.id === playerId;
@@ -18,6 +19,7 @@ export function BenchUnits() {
   // Find the current player to check reserve lock and active unit count
   const currentPlayer = gameState?.players.find(p => p.id === playerId);
   const reserveLocked = currentPlayer?.reserveLockedUntilNextTurn ?? false;
+  const isEliminated = currentPlayer?.isEliminated ?? false;
   const activeUnitCount = currentPlayer?.units.filter(u => 
     u.position !== null && 
     u.position!.x >= 0 && 
@@ -32,7 +34,9 @@ export function BenchUnits() {
                      isStandby && 
                      activeUnitCount < 3 && 
                      canSelectBenchUnits && 
-                     !reserveLocked;
+                     !reserveLocked &&
+                     !isEliminated &&
+                     !isSpectating;
   
   // Debug logging for bench unit interaction
   console.log('=== BENCH UNIT INTERACTION CHECK ===');

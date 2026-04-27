@@ -1,16 +1,33 @@
-import type { GameState, PlayerState } from '../../types/index.js';
-import { MAX_HAND_SIZE, ACTIVE_UNIT_COUNT } from '../../types/index.js';
+import type { GameState, PlayerState, UnitCard } from '../../types/index.js';
+import { MAX_HAND_SIZE, ACTIVE_UNIT_COUNT, RESERVE_UNIT_COUNT, CardType } from '../../types/index.js';
 
 export interface StandbyPhaseStatus {
   isActive: boolean;
-  needsBenchDeployment: boolean;
   needsHandDiscard: boolean;
+  needsBenchDeployment: boolean;
+  canSummonToBench: boolean;
+  summonableCards: UnitCard[];
   message: string;
   canProgress: boolean;
 }
 
 /**
- * Determines if the standby phase should be triggered for a player
+ * Get unit cards from hand that are eligible for bench summoning.
+ * Only UNIT cards can be summoned, and the player must have enough LP.
+ */
+export function getSummonableHandUnits(player: PlayerState): UnitCard[] {
+  return player.hand.cards.filter(
+    (c): c is UnitCard => c.cardType === CardType.UNIT && c.cost <= player.life
+  );
+}
+
+/**
+ * Determines if the standby phase should be triggered for a player.
+ *
+ * Strict ordering enforced:
+ *   Step 1 — Discard (if hand > MAX_HAND_SIZE)
+ *   Step 2 — Promote bench → active (if active < 3 AND bench has units)
+ *   Step 3 — Summon hand → bench (optional, if bench has open slots AND hand has summonable units AND LP sufficient)
  */
 export function shouldTriggerStandbyPhase(player: PlayerState, boardWidth: number = 23, boardHeight: number = 23): StandbyPhaseStatus {
   // Count only units actually ON the board (within bounds), not bench units with out-of-bounds positions
@@ -23,30 +40,46 @@ export function shouldTriggerStandbyPhase(player: PlayerState, boardWidth: numbe
   ).length;
   const hasBenchUnits = player.team.reserveUnits.length > 0;
   const handSize = player.hand.cards.length;
+  const benchSlotCount = player.team.reserveUnits.length;
 
-  const needsBenchDeployment = activeUnitCount < ACTIVE_UNIT_COUNT && hasBenchUnits;
+  // Step 1: Discard
   const needsHandDiscard = handSize > MAX_HAND_SIZE;
 
-  // Standby phase triggers if either condition is true
-  const isActive = needsBenchDeployment || needsHandDiscard;
+  // Step 2: Promote bench → active
+  const needsBenchDeployment = activeUnitCount < ACTIVE_UNIT_COUNT && hasBenchUnits;
+
+  // Step 3: Summon to bench (only available when steps 1 & 2 are resolved)
+  const hasOpenBenchSlot = benchSlotCount < RESERVE_UNIT_COUNT;
+  const summonableCards = getSummonableHandUnits(player);
+  const canSummonToBench =
+    !needsHandDiscard &&
+    !needsBenchDeployment &&
+    hasOpenBenchSlot &&
+    summonableCards.length > 0;
+
+  // Standby phase triggers if any condition is true
+  const isActive = needsHandDiscard || needsBenchDeployment || canSummonToBench;
 
   // Generate appropriate message(s)
   let message = '';
-  if (needsBenchDeployment && needsHandDiscard) {
-    message = 'Please move a bench/reserved unit onto the field and discard down to the maximum limit.';
+  if (needsHandDiscard) {
+    message = 'Hand size exceeded. Please discard down to the maximum limit.';
   } else if (needsBenchDeployment) {
     message = 'Please move a bench/reserved unit onto the field.';
-  } else if (needsHandDiscard) {
-    message = 'Hand size exceeded. Please discard down to the maximum limit.';
+  } else if (canSummonToBench) {
+    message = 'You may summon a unit from your hand to the bench (costs LP).';
   }
 
-  // Can progress only when both requirements are satisfied
-  const canProgress = !needsBenchDeployment && !needsHandDiscard;
+  // Can progress only when mandatory requirements are satisfied
+  // (bench summon is optional — player can skip it)
+  const canProgress = !needsHandDiscard && !needsBenchDeployment;
 
   return {
     isActive,
-    needsBenchDeployment,
     needsHandDiscard,
+    needsBenchDeployment,
+    canSummonToBench,
+    summonableCards,
     message,
     canProgress,
   };

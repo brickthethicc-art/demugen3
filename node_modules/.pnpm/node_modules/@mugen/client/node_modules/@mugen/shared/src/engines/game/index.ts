@@ -42,13 +42,15 @@ export function createGame(players: PlayerState[]): Result<GameState> {
       discardPile = result.discardPile;
     }
 
-    return {
+    const initializedPlayer = {
       ...player,
       deck: shuffledDeck,
       hand: emptyHand,
       mainDeck,
       discardPile,
     };
+    
+    return initializedPlayer;
   });
 
   return {

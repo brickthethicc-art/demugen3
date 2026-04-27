@@ -1,8 +1,10 @@
+import { useRef, useEffect } from 'react';
 import { useGameStore } from '../store/game-store.js';
 import { useGameActions } from '../hooks/useGameActions.js';
 import { useCardHover } from '../hooks/useUnitHover.js';
-import { TurnPhase } from '@mugen/shared';
-import { Heart, Zap, ArrowRight, SkipForward } from 'lucide-react';
+import type { GameState } from '@mugen/shared';
+import { TurnPhase, CardType } from '@mugen/shared';
+import { Heart, Zap, ArrowRight, SkipForward, X } from 'lucide-react';
 
 const PHASE_LABELS: Record<string, string> = {
   [TurnPhase.STANDBY]: 'Standby Phase',
@@ -12,12 +14,73 @@ const PHASE_LABELS: Record<string, string> = {
   [TurnPhase.END]: 'End Phase',
 };
 
+// Sorcery cards that require a target unit
+const SORCERY_CARDS_REQUIRING_TARGET = new Set([
+  's01', // Quick Strike
+  's02', // Minor Heal
+  's04', // Fireball
+  's05', // Mend Wounds
+  's06', // Haste
+  's07', // Weaken
+  's08', // Chain Lightning
+  's11', // Displacement
+  's12', // Meteor Strike
+  's13', // Full Restore
+  's14', // Battle Rage
+  's15', // Paralyze
+  's18', // Dimensional Swap
+  's20', // Resurrection
+  's22', // Soul Drain
+]);
+
+function requiresTarget(cardId: string): boolean {
+  return SORCERY_CARDS_REQUIRING_TARGET.has(cardId);
+}
+
+function getMinimumSorceryTargetCount(cardId: string): number {
+  if (!requiresTarget(cardId)) return 0;
+  return cardId === 's18' ? 2 : 1;
+}
+
+function getValidSorceryTargetCount(cardId: string, gameState: GameState, playerId: string): number {
+  const currentPlayer = gameState.players.find((p) => p.id === playerId);
+  if (!currentPlayer) return 0;
+
+  const nonTargetCards = new Set(['s03', 's09', 's10', 's16', 's17', 's19', 's21']);
+  if (nonTargetCards.has(cardId)) return 0;
+
+  let count = 0;
+
+  for (const player of gameState.players) {
+    for (const unit of player.units) {
+      if (!unit.position) continue;
+
+      const isFriendly = player.id === playerId;
+      const isEnemy = !isFriendly;
+
+      if (['s01', 's04', 's08', 's12', 's22', 's07', 's15'].includes(cardId) && isEnemy) {
+        count += 1;
+      } else if (['s02', 's05', 's06', 's11', 's13', 's14', 's20'].includes(cardId) && isFriendly) {
+        count += 1;
+      } else if (cardId === 's18') {
+        count += 1;
+      }
+    }
+  }
+
+  return count;
+}
 
 function HandDisplay() {
   const gameState = useGameStore((s) => s.gameState);
   const playerId = useGameStore((s) => s.playerId);
   const myPlayer = gameState?.players.find((p) => p.id === playerId);
   const { handleMouseEnter, handleMouseLeave } = useCardHover();
+  const { isMyTurn, sendPlaySorcery } = useGameActions();
+  const setError = useGameStore((s) => s.setError);
+  const sorceryModeActive = useGameStore((s) => s.sorceryModeActive);
+  const selectedSorceryCard = useGameStore((s) => s.selectedSorceryCard);
+  const { enterSorceryMode, exitSorceryMode } = useGameStore();
 
   if (!myPlayer || myPlayer.hand.cards.length === 0) {
     return (
@@ -25,15 +88,93 @@ function HandDisplay() {
     );
   }
 
+  const handleCardClick = (card: any) => {
+    // Only sorcery cards are clickable for playing
+    if (card.cardType !== CardType.SORCERY) {
+      return;
+    }
+
+    // Phase check: ONLY allow during Ability Phase
+    if (gameState?.turnPhase !== TurnPhase.ABILITY) {
+      setError(`Sorcery cards can only be played during Ability Phase (current: ${gameState?.turnPhase})`);
+      return;
+    }
+
+    // Turn check
+    if (!isMyTurn) {
+      setError('Not your turn');
+      return;
+    }
+
+    // Check if sorcery requires a target
+    if (requiresTarget(card.id)) {
+      if (!gameState || !playerId) {
+        setError('Game state unavailable for sorcery targeting');
+        return;
+      }
+
+      const validTargetCount = getValidSorceryTargetCount(card.id, gameState, playerId);
+      const minimumTargetCount = getMinimumSorceryTargetCount(card.id);
+      if (validTargetCount < minimumTargetCount) {
+        if (card.id === 's18') {
+          setError(`${card.name} requires at least two valid units on the board`);
+        } else {
+          setError(`No valid targets available for ${card.name}`);
+        }
+        return;
+      }
+
+      // Enter targeting mode
+      enterSorceryMode(card, true);
+      if (card.id === 's18') {
+        setError(`Select first target for ${card.name}`);
+      } else {
+        setError(`Select a target for ${card.name}`);
+      }
+    } else {
+      if (sorceryModeActive) {
+        exitSorceryMode();
+      }
+
+      // Play immediately without target
+      setError(null);
+      sendPlaySorcery(card.id);
+    }
+  };
+
+  const handleCancelSorcery = () => {
+    exitSorceryMode();
+    setError(null);
+  };
+
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2">
-      {myPlayer.hand.cards.map((card) => (
-        <div
-          key={card.id}
-          className="flex-shrink-0 w-[136px] h-[184px] bg-mugen-bg border border-white/10 rounded-lg p-3 cursor-pointer hover:border-mugen-accent/50 transition-colors"
-          onMouseEnter={() => handleMouseEnter(card)}
-          onMouseLeave={handleMouseLeave}
-        >
+    <div className="flex flex-col gap-2">
+      {sorceryModeActive && selectedSorceryCard && (
+        <div className="bg-mugen-gold/20 border border-mugen-gold rounded-lg px-3 py-2 flex items-center justify-between">
+          <span className="text-sm text-mugen-gold font-medium">
+            Select target for {selectedSorceryCard.name}
+          </span>
+          <button
+            onClick={handleCancelSorcery}
+            className="text-mugen-gold hover:text-white transition"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {myPlayer.hand.cards.map((card) => (
+          <div
+            key={card.id}
+            className={`flex-shrink-0 w-[136px] h-[184px] bg-mugen-bg border border-white/10 rounded-lg p-3 transition-colors ${
+              card.cardType === CardType.SORCERY && gameState?.turnPhase === TurnPhase.ABILITY && isMyTurn
+                ? 'cursor-pointer hover:border-mugen-accent/50'
+                : 'cursor-not-allowed opacity-60'
+            }`}
+            onMouseEnter={() => handleMouseEnter(card)}
+            onMouseLeave={handleMouseLeave}
+            onClick={() => handleCardClick(card)}
+          >
           <div className="text-white font-semibold text-sm truncate">{card.name}</div>
           <div className="flex flex-col text-xs text-gray-300 mt-1">
             {card.cardType === 'UNIT' ? (
@@ -49,8 +190,9 @@ function HandDisplay() {
           <div className="text-xs text-gray-400 mt-1 truncate">
             {card.cardType === 'UNIT' ? card.ability?.name : card.effect}
           </div>
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -206,6 +348,38 @@ function PhaseControls() {
   );
 }
 
+function GameLog() {
+  const gameLogs = useGameStore((s) => s.gameLogs);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [gameLogs.length]);
+
+  return (
+    <div className="bg-mugen-surface/80 backdrop-blur-sm rounded-lg border border-white/10 p-2 w-[440px]">
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Game Log</div>
+      <div
+        ref={scrollRef}
+        className="overflow-y-auto max-h-[78px] space-y-0.5"
+        style={{ scrollbarWidth: 'thin' }}
+      >
+        {gameLogs.length === 0 ? (
+          <div className="text-xs text-gray-500 italic">No events yet</div>
+        ) : (
+          gameLogs.map((message, i) => (
+            <div key={i} className="text-xs text-gray-300 leading-tight break-words">
+              {message}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function GameHUD() {
   const gameState = useGameStore((s) => s.gameState);
   const playerId = useGameStore((s) => s.playerId);
@@ -224,6 +398,7 @@ export function GameHUD() {
           <div className="flex flex-col gap-3 pointer-events-auto">
             <TurnIndicator />
             <PhaseControls />
+            <GameLog />
           </div>
           <div className="flex flex-col gap-2 pointer-events-auto">
             {gameState.players.map((player, index) => {

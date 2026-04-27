@@ -3,10 +3,6 @@ import { placeUnit } from '../board/index.js';
 import { assignActiveAndBenchUnits, initializePlayerBoardState } from './assignment.js';
 import { getPlayerColor } from '../player-color/index.js';
 
-// Debug logging function (enabled for debugging spawn issues)
-const dbg = (message: any, ...args: any[]) => {
-  console.log(`[SPAWN] ${message}`, ...args);
-};
 
 // Helper function to create UnitInstance from UnitCard
 function createUnitInstance(overrides: {
@@ -41,8 +37,6 @@ export function getSpawnPositions(playerIndex: number, boardWidth: number, board
   // Determine side based on player index
   const side = playerIndex % 4;
   const offset = 2; // 3 tiles inward from edge (0-indexed)
-  
-  dbg(`getSpawnPositions: playerIndex=${playerIndex}, side=${side}, boardSize=${boardWidth}x${boardHeight}`);
 
   if (side === 0) {
     // Bottom side: 3 rows up from bottom
@@ -161,7 +155,6 @@ export function placeStartingUnits(gameState: GameState, playerId: string): Resu
     activeInstances.push(unitInstance);
     
     // Place unit on board using player-scoped ID to avoid collisions
-    dbg(`Placing unit ${unitInstanceId} for player ${playerId} (${color}) at position (${position.x}, ${position.y})`);
     const placeResult = placeUnit(updatedBoard, unitInstanceId, position);
     if (!placeResult.ok) {
       return { ok: false, error: `Failed to place unit ${unitInstanceId}: ${placeResult.error}` };
@@ -189,14 +182,6 @@ export function placeStartingUnits(gameState: GameState, playerId: string): Resu
       ? { ...p, units: [...activeInstances, ...benchInstances], color }
       : p
   );
-  
-  // Final logging
-  dbg(`=== placeStartingUnits COMPLETE for ${playerId} (${color}) ===`);
-  dbg(`Active units placed: ${activeInstances.length}`);
-  dbg(`Bench units created: ${benchInstances.length}`);
-  activeInstances.forEach((unit, i) => {
-    dbg(`  Active ${i+1}: ${unit.card.id} at (${unit.position!.x}, ${unit.position!.y})`);
-  });
   
   return {
     ok: true,

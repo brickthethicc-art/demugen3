@@ -54,6 +54,22 @@ export function useGameActions() {
     [isMyTurn]
   );
 
+  const sendSummonToBench = useCallback(
+    (cardId: string) => {
+      if (!isMyTurn) return;
+      sendIntent({ type: IntentType.SUMMON_TO_BENCH, cardId } as any);
+    },
+    [isMyTurn]
+  );
+
+  const sendPlaySorcery = useCallback(
+    (cardId: string, targetUnitId?: string, targetOwnerId?: string, targetUnitId2?: string, targetOwnerId2?: string) => {
+      if (!isMyTurn) return;
+      sendIntent({ type: IntentType.PLAY_SORCERY, cardId, targetUnitId, targetOwnerId, targetUnitId2, targetOwnerId2 } as any);
+    },
+    [isMyTurn]
+  );
+
   return {
     isMyTurn,
     sendMove,
@@ -62,5 +78,7 @@ export function useGameActions() {
     sendAdvancePhase,
     sendEndTurn,
     sendDeployReserve,
+    sendSummonToBench,
+    sendPlaySorcery,
   };
 }

@@ -1,13 +1,14 @@
-import type { GameState, UnitInstance, Position, PlayerState } from '../../types/index.js';
-import { TurnPhase, MAX_MOVES_PER_TURN, ACTIVE_UNIT_COUNT, AbilityType } from '../../types/index.js';
+import type { GameState, UnitInstance, Position, PlayerState, UnitCard } from '../../types/index.js';
+import { TurnPhase, MAX_MOVES_PER_TURN, ACTIVE_UNIT_COUNT, RESERVE_UNIT_COUNT, CardType, CombatModifierType } from '../../types/index.js';
 import type { Result } from '../../types/actions.js';
 import { moveUnit as boardMoveUnit, placeUnit, removeUnit as boardRemoveUnit } from '../board/index.js';
 import { resolveCombat } from '../combat/index.js';
-import { useAbility } from '../ability/index.js';
+import { useAbility, isSelfTargetAbility } from '../ability/index.js';
 import { applyDamageToLife } from '../resource/index.js';
 import { drawOne } from '../card/index.js';
 import { handleUnitDeath } from '../discard-pile/index.js';
 import { getCurrentPlayerStandbyStatus, canExitStandbyPhase } from '../standby/index.js';
+import { chebyshevDistance } from '../../utils/position.js';
 
 export function startTurn(state: GameState): GameState {
   const currentPlayer = state.players[state.currentPlayerIndex]!;
@@ -116,10 +117,6 @@ function findUnitById(state: GameState, unitId: string, excludePlayerId?: string
   return null;
 }
 
-function chebyshevDistance(a: Position, b: Position): number {
-  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-}
-
 export function processMove(
   state: GameState,
   playerId: string,
@@ -153,7 +150,20 @@ export function processMove(
     return { ok: false, error: 'Unit has already moved this turn' };
   }
 
-  const moveResult = boardMoveUnit(state.board, unit.position, target, unit.card.movement);
+  const isParalyzed = unit.combatModifiers.some(
+    (m) => m.type === CombatModifierType.MOVEMENT_DEBUFF && (m.value ?? 0) >= 999
+  );
+  if (isParalyzed) {
+    return { ok: false, error: 'Unit is paralyzed and cannot move' };
+  }
+
+  // Apply movement debuffs from combat modifiers
+  const movementDebuff = unit.combatModifiers
+    .filter((m) => m.type === CombatModifierType.MOVEMENT_DEBUFF)
+    .reduce((sum, m) => sum + (m.value || 0), 0);
+  const effectiveMovement = Math.max(0, unit.card.movement - movementDebuff);
+
+  const moveResult = boardMoveUnit(state.board, unit.position, target, effectiveMovement);
   if (!moveResult.ok) {
     return { ok: false, error: moveResult.error };
   }
@@ -199,8 +209,13 @@ export function processAbility(
   }
 
   const { unit } = found;
+
+  // Use ability engine's helper function for self-target detection
+  const isSelfTarget = isSelfTargetAbility(unit.card.ability.abilityType, unit.card.ability.description);
+
   let targetUnit: UnitInstance | null = null;
   let targetFound: { player: PlayerState; unit: UnitInstance; playerIndex: number } | null = null;
+
   if (targetUnitId) {
     // Use targetOwnerId for direct owner-scoped lookup (handles 3+ player card ID collisions)
     if (targetOwnerId) {
@@ -212,28 +227,12 @@ export function processAbility(
     if (targetFound) {
       targetUnit = targetFound.unit;
     }
+  } else if (!isSelfTarget) {
+    return { ok: false, error: 'This ability requires a target' };
   }
 
-  // Validate range: target must be within the unit's range (Chebyshev distance)
-  if (targetUnit && unit.position && targetUnit.position) {
-    const dist = chebyshevDistance(unit.position, targetUnit.position);
-    if (dist > unit.card.range) {
-      return { ok: false, error: `Target out of ability range: distance ${dist}, range ${unit.card.range}` };
-    }
-  }
-
-  // Validate target alignment: DAMAGE/MODIFIER must target enemies, HEAL/BUFF must target allies
-  if (targetUnit && targetFound) {
-    const isFriendly = targetFound.player.id === playerId;
-    const abilityType = unit.card.ability.abilityType;
-    if ((abilityType === AbilityType.DAMAGE || abilityType === AbilityType.MODIFIER) && isFriendly) {
-      return { ok: false, error: 'DAMAGE/MODIFIER abilities must target enemy units' };
-    }
-    if ((abilityType === AbilityType.HEAL || abilityType === AbilityType.BUFF) && !isFriendly) {
-      return { ok: false, error: 'HEAL/BUFF abilities must target friendly units' };
-    }
-  }
-
+  // All validation (range, target type, board state) is handled by the ability engine
+  // This ensures single source of truth for ability rules
   const abilityResult = useAbility(unit, targetUnit);
   if (!abilityResult.ok) {
     return { ok: false, error: abilityResult.error };
@@ -265,6 +264,22 @@ export function processAbility(
 
   // Handle unit death after ability damage
   let newBoard = state.board;
+
+  // Handle source unit death from self-damage
+  if (updatedUnit.currentHp <= 0 && updatedUnit.position) {
+    const removeResult = boardRemoveUnit(newBoard, updatedUnit.position);
+    if (removeResult.ok) newBoard = removeResult.value;
+
+    newPlayers = newPlayers.map((p) => {
+      if (p.id === playerId) {
+        const updatedPlayer = handleUnitDeath(p, updatedUnit);
+        return { ...updatedPlayer, reserveLockedUntilNextTurn: true };
+      }
+      return p;
+    });
+  }
+
+  // Handle target unit death
   if (updatedTarget && updatedTarget.currentHp <= 0 && updatedTarget.position) {
     // Remove dead unit from board
     const removeResult = boardRemoveUnit(newBoard, updatedTarget.position);
@@ -324,6 +339,13 @@ export function processAttack(
   const { unit: attacker } = attackerFound;
   if (attacker.hasAttackedThisTurn) {
     return { ok: false, error: `Unit ${attackerUnitId} has already attacked this turn` };
+  }
+
+  const isParalyzed = attacker.combatModifiers.some(
+    (m) => m.type === CombatModifierType.ATK_DEBUFF && (m.value ?? 0) >= 999
+  );
+  if (isParalyzed) {
+    return { ok: false, error: 'Unit is paralyzed and cannot attack' };
   }
 
   // Use defenderOwnerId for direct owner-scoped lookup (handles 3+ player card ID collisions)
@@ -489,7 +511,8 @@ export function deployReserve(
     return { ok: false, error: `Cannot exceed ${ACTIVE_UNIT_COUNT} active units on the board` };
   }
 
-  const placeResult = placeUnit(state.board, unitId, position);
+  const unitInstanceId = `${playerId}-${unitId}`;
+  const placeResult = placeUnit(state.board, unitInstanceId, position);
   if (!placeResult.ok) {
     return { ok: false, error: placeResult.error };
   }
@@ -499,6 +522,7 @@ export function deployReserve(
     currentHp: reserveUnit.hp,
     position,
     ownerId: playerId,
+    color: player.color,
     hasMovedThisTurn: false,
     hasUsedAbilityThisTurn: false,
     hasAttackedThisTurn: false,
@@ -510,7 +534,7 @@ export function deployReserve(
     i === playerIdx
       ? {
           ...p,
-          units: [...p.units, newInstance],
+          units: [...p.units.filter((u) => u.card.id !== unitId), newInstance],
           team: { ...p.team, reserveUnits: newReserves },
         }
       : p
@@ -518,13 +542,12 @@ export function deployReserve(
 
   const newState = { ...state, board: placeResult.value, players: newPlayers };
 
-  // Check if we're still in standby phase and if bench deployment requirements are now met
+  // Check if we're still in standby phase and if all standby requirements are now met
   if (state.turnPhase === TurnPhase.STANDBY) {
     const standbyStatus = getCurrentPlayerStandbyStatus(newState);
     
-    // If bench deployment is no longer needed but hand discard is still needed, stay in standby
-    // If both requirements are met, we can exit standby phase
-    if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard) {
+    // Stay in standby if any step is still active (including optional summon-to-bench)
+    if (!standbyStatus.isActive) {
       return { ok: true, value: { ...newState, turnPhase: TurnPhase.MOVE } };
     }
   }
@@ -566,13 +589,12 @@ export function playCard(
 
   const newState = { ...state, players: newPlayers };
 
-  // Check if we're still in standby phase and if hand discard requirements are now met
+  // Check if we're still in standby phase and if all standby requirements are now met
   if (state.turnPhase === TurnPhase.STANDBY) {
     const standbyStatus = getCurrentPlayerStandbyStatus(newState);
     
-    // If hand discard is no longer needed but bench deployment is still needed, stay in standby
-    // If both requirements are met, we can exit standby phase
-    if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard) {
+    // Stay in standby if any step is still active (including optional summon-to-bench)
+    if (!standbyStatus.isActive) {
       return { ok: true, value: { ...newState, turnPhase: TurnPhase.MOVE } };
     }
   }
@@ -596,4 +618,85 @@ export function getBenchDeploymentNotification(
     return 'Please move your available bench units into the field';
   }
   return null;
+}
+
+export function summonToBench(
+  state: GameState,
+  playerId: string,
+  cardId: string
+): Result<GameState> {
+  if (state.turnPhase !== TurnPhase.STANDBY) {
+    return { ok: false, error: 'Bench summoning is only allowed during the Standby phase' };
+  }
+
+  const playerIdx = state.players.findIndex((p) => p.id === playerId);
+  if (playerIdx === -1) {
+    return { ok: false, error: `Player ${playerId} not found` };
+  }
+
+  const player = state.players[playerIdx]!;
+
+  // Enforce strict phase ordering: discard and bench deploy must be resolved first
+  const status = getCurrentPlayerStandbyStatus(state);
+  if (status.needsHandDiscard) {
+    return { ok: false, error: 'Must discard down to hand limit before summoning' };
+  }
+  if (status.needsBenchDeployment) {
+    return { ok: false, error: 'Must promote a bench unit to the active zone before summoning' };
+  }
+
+  // Validate bench has an open slot
+  if (player.team.reserveUnits.length >= RESERVE_UNIT_COUNT) {
+    return { ok: false, error: 'Bench is full — no open slots' };
+  }
+
+  // Find the card in hand
+  const cardIndex = player.hand.cards.findIndex((c) => c.id === cardId);
+  if (cardIndex === -1) {
+    return { ok: false, error: `Card ${cardId} not found in hand` };
+  }
+
+  const card = player.hand.cards[cardIndex]!;
+
+  // Must be a UNIT card
+  if (card.cardType !== CardType.UNIT) {
+    return { ok: false, error: 'Only unit cards can be summoned to the bench' };
+  }
+
+  const unitCard = card as UnitCard;
+
+  // Validate LP cost
+  if (unitCard.cost <= 0) {
+    return { ok: false, error: 'Unit has no valid cost' };
+  }
+  if (player.life < unitCard.cost) {
+    return { ok: false, error: `Insufficient LP: need ${unitCard.cost}, have ${player.life}` };
+  }
+
+  // Execute: remove from hand, add to bench reserve, deduct LP
+  const newHandCards = player.hand.cards.filter((_, i) => i !== cardIndex);
+  const newReserveUnits = [...player.team.reserveUnits, unitCard];
+  const newLife = player.life - unitCard.cost;
+
+  const updatedPlayers = state.players.map((p, i) =>
+    i === playerIdx
+      ? {
+          ...p,
+          hand: { cards: newHandCards },
+          team: { ...p.team, reserveUnits: newReserveUnits },
+          life: newLife,
+          isEliminated: newLife <= 0,
+        }
+      : p
+  );
+
+  const newState = { ...state, players: updatedPlayers };
+
+  // Re-evaluate standby status — if no more summons are available/possible, exit standby
+  const newStatus = getCurrentPlayerStandbyStatus(newState);
+  if (!newStatus.isActive) {
+    return { ok: true, value: { ...newState, turnPhase: TurnPhase.MOVE } };
+  }
+
+  return { ok: true, value: newState };
 }

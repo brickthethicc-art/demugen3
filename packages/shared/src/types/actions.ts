@@ -11,6 +11,8 @@ export enum IntentType {
   ADVANCE_PHASE = 'ADVANCE_PHASE',
   DEPLOY_RESERVE = 'DEPLOY_RESERVE',
   DISCARD_CARD = 'DISCARD_CARD',
+  SUMMON_TO_BENCH = 'SUMMON_TO_BENCH',
+  PLAY_SORCERY = 'PLAY_SORCERY',
 }
 
 export interface MoveUnitIntent {
@@ -64,6 +66,20 @@ export interface DiscardCardIntent {
   cardId: string;
 }
 
+export interface SummonToBenchIntent {
+  type: IntentType.SUMMON_TO_BENCH;
+  cardId: string;
+}
+
+export interface PlaySorceryIntent {
+  type: IntentType.PLAY_SORCERY;
+  cardId: string;
+  targetUnitId?: string;
+  targetOwnerId?: string;
+  targetUnitId2?: string;
+  targetOwnerId2?: string;
+}
+
 export type ClientIntent =
   | MoveUnitIntent
   | UseAbilityIntent
@@ -73,7 +89,9 @@ export type ClientIntent =
   | LockTeamIntent
   | AdvancePhaseIntent
   | DeployReserveIntent
-  | DiscardCardIntent;
+  | DiscardCardIntent
+  | SummonToBenchIntent
+  | PlaySorceryIntent;
 
 export interface ActionResult<T = unknown> {
   success: boolean;

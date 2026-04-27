@@ -12,7 +12,7 @@ const MENU_WIDTH = 160;
 const MENU_OFFSET = 8;
 
 export function UnitActionMenu() {
-  const { gameState, selectedUnitId, moveModeActive, menuHiddenDuringMove, validMoves, playerId, abilityModeActive, abilityTargets } = useGameStore((s) => ({
+  const { gameState, selectedUnitId, moveModeActive, menuHiddenDuringMove, validMoves, playerId, abilityModeActive, abilityTargets, isSpectating } = useGameStore((s) => ({
     gameState: s.gameState,
     selectedUnitId: s.selectedUnitId,
     moveModeActive: s.moveModeActive,
@@ -21,7 +21,9 @@ export function UnitActionMenu() {
     playerId: s.playerId,
     abilityModeActive: s.abilityModeActive,
     abilityTargets: s.abilityTargets,
+    isSpectating: s.isSpectating,
   }));
+  const { sendAbility } = useGameActions();
   const { isMyTurn } = useGameActions();
   const { enterMoveMode, exitMoveMode, hideMenuDuringMove, showMenuDuringMove, setValidMoves, clearValidMoves, selectUnit, enterAbilityMode, exitAbilityMode, setAbilityTargets, clearAbilityTargets, enterAttackMode, exitAttackMode, setAttackTargets, clearAttackTargets } = useGameStore();
 
@@ -31,6 +33,10 @@ export function UnitActionMenu() {
     const myPlayer = gameState.players.find(p => p.id === playerId);
     return myPlayer?.units.find(u => u.card.id === selectedUnitId) ?? null;
   }, [selectedUnitId, gameState, playerId]);
+
+  // Check if player is eliminated or spectating
+  const currentPlayer = gameState?.players.find(p => p.id === playerId);
+  const isEliminated = currentPlayer?.isEliminated ?? false;
 
   // Determine available actions based on phase and unit state
   const isMovePhase = gameState?.turnPhase === TurnPhase.MOVE;
@@ -80,7 +86,7 @@ export function UnitActionMenu() {
   const hasAttackTargets = validAttackTargets.length > 0;
 
   // Early return after all hooks are called
-  if (!selectedUnitId || !gameState || !isMyTurn || !selectedUnit || selectedUnit.ownerId !== playerId || menuHiddenDuringMove) {
+  if (!selectedUnitId || !gameState || !isMyTurn || !selectedUnit || selectedUnit.ownerId !== playerId || menuHiddenDuringMove || isEliminated || isSpectating) {
     return null;
   }
 
@@ -129,6 +135,24 @@ export function UnitActionMenu() {
     // Compute valid ability targets
     const allUnits = gameState.players.flatMap(p => p.units);
     const targets = getAbilityTargets(selectedUnit, allUnits, playerId);
+
+    // Check if this is a self-target ability
+    const abilityType = selectedUnit.card.ability.abilityType;
+    const abilityDescription = selectedUnit.card.ability.description;
+    const isSelfTarget = abilityType === 'BUFF' && 
+      abilityDescription.toLowerCase().includes('gain') && 
+      !abilityDescription.toLowerCase().includes('ally') && 
+      !abilityDescription.toLowerCase().includes('adjacent');
+
+    // Self-target abilities activate directly without targeting mode
+    if (isSelfTarget) {
+      sendAbility(selectedUnit.card.id, undefined, undefined);
+      selectUnit(null);
+      clearValidMoves();
+      exitMoveMode();
+      hideMenuDuringMove();
+      return;
+    }
 
     if (targets.length === 0) return;
 

@@ -1,1 +1,0 @@
-{"version":3,"file":"useGameActions.d.ts","sourceRoot":"","sources":["../../../src/hooks/useGameActions.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,QAAQ,EAAE,MAAM,eAAe,CAAC;AAI9C,wBAAgB,cAAc;;uBASjB,MAAM,UAAU,QAAQ;0BAQxB,MAAM,aAAa,MAAM,kBAAkB,MAAM;6BAQ7C,MAAM,cAAc,MAAM,mBAAmB,MAAM;;;gCAkBvD,MAAM,YAAY,QAAQ;EAgBtC"}

@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  mugen-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mugen-server
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - VITE_SERVER_URL=https://your-domain.com
+      - CORS_ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mugen-network
+
+  # Optional: Add Redis for state persistence
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: mugen-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - mugen-network
+
+networks:
+  mugen-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local

@@ -55,6 +55,7 @@ describe('StartTurn Debug', () => {
     console.log('After startTurn - Turn phase:', newTurnState.turnPhase);
 
     expect(newTurnState.players[0]!.hand.cards.length).toBe(1); // Should draw 1 card
-    expect(newTurnState.turnPhase).toBe(TurnPhase.MOVE); // Should NOT trigger standby phase (only 1 card)
+    // Standby triggers because drawn unit card is summonable (open bench slots + sufficient LP)
+    expect(newTurnState.turnPhase).toBe(TurnPhase.STANDBY);
   });
 });

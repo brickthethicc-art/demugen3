@@ -13,21 +13,23 @@ describe('ResourceEngine', () => {
   });
 
   describe('deductLife', () => {
-    it('sufficient life — returns new life total', () => {
+    it('sufficient life — returns new life total, not eliminated', () => {
       const player = createPlayer({ life: 20 });
       const result = deductLife(player, 5);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.life).toBe(15);
+        expect(result.value.isEliminated).toBe(false);
       }
     });
 
-    it('exact life remaining — returns 0 life', () => {
+    it('exact life remaining — returns 0 life, player eliminated', () => {
       const player = createPlayer({ life: 5 });
       const result = deductLife(player, 5);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.life).toBe(0);
+        expect(result.value.isEliminated).toBe(true);
       }
     });
 
@@ -40,12 +42,13 @@ describe('ResourceEngine', () => {
       }
     });
 
-    it('cost = 0 — returns unchanged life', () => {
+    it('cost = 0 — returns unchanged life, not eliminated', () => {
       const player = createPlayer({ life: 20 });
       const result = deductLife(player, 0);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.life).toBe(20);
+        expect(result.value.isEliminated).toBe(false);
       }
     });
 

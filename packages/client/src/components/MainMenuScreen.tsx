@@ -1,8 +1,10 @@
 import { useGameStore } from '../store/game-store.js';
-import { Play, Layers, BookOpen, Bug } from 'lucide-react';
+import { Play, Layers, BookOpen, Bug, Smartphone, Monitor } from 'lucide-react';
 
 export function MainMenuScreen() {
   const setScreen = useGameStore((s) => s.setScreen);
+  const mobileUiMode = useGameStore((s) => s.mobileUiMode);
+  const setMobileUiMode = useGameStore((s) => s.setMobileUiMode);
 
   const handleCreateTestDeck = () => {
     import('../logic/test-deck.js').then(({ saveTestDeck }) => {
@@ -32,6 +34,18 @@ export function MainMenuScreen() {
             className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-mugen-surface border border-white/10 hover:border-mugen-accent/50 rounded-lg font-medium transition"
           >
             <Layers size={18} /> Deck Builder
+          </button>
+
+          <button
+            onClick={() => setMobileUiMode(!mobileUiMode)}
+            className={`w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg font-medium transition border ${
+              mobileUiMode
+                ? 'bg-mugen-accent/15 border-mugen-accent/60 text-mugen-accent'
+                : 'bg-mugen-surface border-white/10 hover:border-mugen-accent/50'
+            }`}
+          >
+            {mobileUiMode ? <Monitor size={18} /> : <Smartphone size={18} />}
+            {mobileUiMode ? 'Desktop View Enabled' : 'Mobile Friendly View'}
           </button>
 
           <button

@@ -8,17 +8,42 @@ let pendingDeck: any[] | null = null;
 
 function flushPendingDeck(): void {
   if (pendingDeck && socket?.connected) {
-    console.log('Socket: Flushing pendingDeck with', pendingDeck.length, 'cards');
     socket.emit('set_selected_deck', { deck: pendingDeck });
     pendingDeck = null;
   }
 }
 
 export function connect(url: string): void {
-  if (socket?.connected) return;
+  if (socket) {
+    if (socket.connected) {
+      return;
+    }
+    socket.disconnect();
+    socket.removeAllListeners();
+    socket = null;
+  }
 
-  socket = io(url, { autoConnect: true });
   const store = useGameStore.getState();
+  socket = io(url, {
+    autoConnect: true,
+    timeout: 10000,
+    transports: ['websocket', 'polling'], // Allow WebSocket with polling fallback
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+  });
+
+  socket.on('connect', () => {
+    store.setError(null); // Clear any previous connection errors
+  });
+
+  socket.on('disconnect', (_reason) => {
+    store.setError('Disconnected from server');
+  });
+
+  socket.on('connect_error', (error) => {
+    store.setError(`Failed to connect to server: ${error.message || 'Connection timeout'}`);
+  });
 
   socket.on('connected', (data: { playerId: string }) => {
     store.setPlayerId(data.playerId);
@@ -39,12 +64,6 @@ export function connect(url: string): void {
   });
 
   socket.on('game_state', (state: GameState) => {
-    console.log('Socket: Received game_state:', state.phase);
-    console.log('Socket: Current player index:', state.currentPlayerIndex);
-    console.log('Socket: Players count:', state.players.length);
-    if (state.players[0]) {
-      console.log('Socket: Player 1 mainDeck cards:', state.players[0].mainDeck?.cards?.length ?? 0);
-    }
     store.setGameState(state);
   });
 
@@ -53,7 +72,11 @@ export function connect(url: string): void {
   });
 
   socket.on('intent_error', (data: { message: string }) => {
-    store.setError(data.message);
+    const currentStore = useGameStore.getState();
+    currentStore.setError(data.message);
+    if (currentStore.sorceryModeActive) {
+      currentStore.exitSorceryMode();
+    }
   });
 
   socket.on('team_locked', (data: { playerId: string; readyCount: number; totalCount: number }) => {
@@ -79,11 +102,35 @@ export function disconnect(): void {
 }
 
 export function createLobby(name: string): void {
-  socket?.emit('create_lobby', { name });
+  if (!socket) {
+    const store = useGameStore.getState();
+    store.setError('Socket not initialized. Please try again.');
+    return;
+  }
+  
+  if (!socket.connected) {
+    const store = useGameStore.getState();
+    store.setError('Not connected to server. Please wait and try again.');
+    return;
+  }
+  
+  socket.emit('create_lobby', { name });
 }
 
 export function joinLobby(code: string, name: string): void {
-  socket?.emit('join_lobby', { code, name });
+  if (!socket) {
+    const store = useGameStore.getState();
+    store.setError('Socket not initialized. Please try again.');
+    return;
+  }
+  
+  if (!socket.connected) {
+    const store = useGameStore.getState();
+    store.setError('Not connected to server. Please wait and try again.');
+    return;
+  }
+  
+  socket.emit('join_lobby', { code, name });
 }
 
 export function setReady(ready: boolean): void {
@@ -91,26 +138,17 @@ export function setReady(ready: boolean): void {
 }
 
 export function setSelectedDeck(deck: any[]): void {
-  console.log('=== DEBUG: Client Socket setSelectedDeck ===');
-  console.log('Socket connected:', socket?.connected);
-  console.log('Socket id:', socket?.id);
-  console.log('Sending deck data:', deck.length, 'cards');
-  console.log('Emitting set_selected_deck event');
-  
   if (!socket) {
-    console.log('WARN: Socket not initialized yet — queuing deck for later');
     pendingDeck = deck;
     return;
   }
   
   if (!socket.connected) {
-    console.log('WARN: Socket not connected yet — queuing deck for later');
     pendingDeck = deck;
     return;
   }
   
   socket.emit('set_selected_deck', { deck });
-  console.log('set_selected_deck event emitted');
 }
 
 export function startGame(): void {

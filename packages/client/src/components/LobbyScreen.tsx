@@ -17,16 +17,89 @@ export function LobbyScreen() {
   const isHost = lobbyPlayers.length > 0 && lobbyPlayers[0]?.id === playerId;
   const allReady = lobbyPlayers.length >= 2 && lobbyPlayers.every((p) => p.isReady);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!name.trim()) return;
-    network.connect('http://localhost:3001');
-    setTimeout(() => network.createLobby(name), 300);
+    const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5174';
+    console.log('=== DEBUG: Creating lobby ===');
+    console.log('Server URL:', serverUrl);
+    console.log('Player name:', name);
+    
+    network.connect(serverUrl);
+    
+    // Wait for socket connection before creating lobby
+    const maxWaitTime = 5000;
+    const checkInterval = 100;
+    let elapsed = 0;
+    
+    const waitForConnection = () => {
+      return new Promise<boolean>((resolve) => {
+        const interval = setInterval(() => {
+          const socket = (network as any).getSocket?.();
+          if (socket?.connected) {
+            clearInterval(interval);
+            console.log('Socket connected, creating lobby');
+            resolve(true);
+          } else if (elapsed >= maxWaitTime) {
+            clearInterval(interval);
+            console.error('Socket connection timeout');
+            resolve(false);
+          } else {
+            elapsed += checkInterval;
+          }
+        }, checkInterval);
+      });
+    };
+    
+    const connected = await waitForConnection();
+    if (connected) {
+      network.createLobby(name);
+    } else {
+      console.error('Failed to connect to server');
+      // Error will be set by socket error handler
+    }
   };
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     if (!name.trim() || !joinCode.trim()) return;
-    network.connect('http://localhost:3001');
-    setTimeout(() => network.joinLobby(joinCode.toUpperCase(), name), 300);
+    const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5174';
+    console.log('=== DEBUG: Joining lobby ===');
+    console.log('Server URL:', serverUrl);
+    console.log('Lobby code:', joinCode);
+    console.log('Player name:', name);
+    
+    network.connect(serverUrl);
+    
+    // Wait for socket connection before joining lobby
+    const maxWaitTime = 5000;
+    const checkInterval = 100;
+    let elapsed = 0;
+    
+    const waitForConnection = () => {
+      return new Promise<boolean>((resolve) => {
+        const interval = setInterval(() => {
+          const socket = (network as any).getSocket?.();
+          if (socket?.connected) {
+            clearInterval(interval);
+            console.log('Socket connected, joining lobby');
+            resolve(true);
+          } else if (elapsed >= maxWaitTime) {
+            clearInterval(interval);
+            console.error('Socket connection timeout');
+            resolve(false);
+          } else {
+            elapsed += checkInterval;
+          }
+        }, checkInterval);
+      });
+    };
+    
+    const connected = await waitForConnection();
+    if (connected) {
+      network.joinLobby(joinCode.toUpperCase(), name);
+    } else {
+      console.error('Failed to connect to server');
+      // Error will be set by socket error handler
+    }
   };
 
   const handleReady = () => {

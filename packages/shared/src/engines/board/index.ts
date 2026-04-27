@@ -1,6 +1,7 @@
 import type { BoardState, GridCell, Position } from '../../types/index.js';
 import { DEFAULT_BOARD_WIDTH, DEFAULT_BOARD_HEIGHT } from '../../types/index.js';
 import type { Result } from '../../types/actions.js';
+import { chebyshevDistance } from '../../utils/position.js';
 
 export function createBoardState(
   width: number = DEFAULT_BOARD_WIDTH,
@@ -57,10 +58,6 @@ export function removeUnit(board: BoardState, pos: Position): Result<BoardState>
   const newCells = cloneCells(board.cells);
   newCells[pos.y]![pos.x] = { position: { ...pos }, occupantId: null };
   return { ok: true, value: { ...board, cells: newCells } };
-}
-
-function chebyshevDistance(a: Position, b: Position): number {
-  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
 export function moveUnit(

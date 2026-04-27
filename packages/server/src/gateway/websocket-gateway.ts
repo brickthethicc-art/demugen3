@@ -17,9 +17,8 @@ import { sanitizeForPlayer } from '../resolver/sanitize.js';
 export function setupGateway(io: SocketServer, state: ServerState): void {
   io.on('connection', (socket: Socket) => {
     const playerId = socket.id;
-    console.log('=== DEBUG: WebSocket Connection ===');
-    console.log('Player connected:', playerId);
-    console.log('Total connected players:', io.sockets.sockets.size);
+    const clientIp = socket.handshake.address;
+    const transport = socket.conn.transport.name;
 
     socket.emit('connected', { playerId });
 
@@ -65,57 +64,39 @@ export function setupGateway(io: SocketServer, state: ServerState): void {
     });
 
     socket.on('set_selected_deck', (data: { deck: any[] }) => {
-      console.log('=== DEBUG: WebSocket set_selected_deck ===');
-      console.log(`Player ${playerId} attempting to set deck`);
-      console.log(`Received deck data:`, data);
-      console.log(`Deck length: ${data.deck?.length || 0}`);
-      
       const code = state.playerToLobby.get(playerId);
       if (!code) {
-        console.log(`ERROR: Player ${playerId} not in any lobby`);
         return;
       }
       const lobby = state.lobbies.get(code);
       if (!lobby) {
-        console.log(`ERROR: Lobby ${code} not found`);
         return;
       }
 
-      console.log(`Found lobby ${code} with ${lobby.players.length} players`);
       const result = setSelectedDeck(lobby, playerId, data.deck);
       if (result.ok) {
         state.lobbies.set(code, result.value);
         io.to(code).emit('lobby_updated', result.value);
-        console.log(`Deck set successfully for player ${playerId}`);
       } else {
-        console.log(`ERROR setting deck: ${result.error}`);
         socket.emit('error', { message: result.error });
       }
     });
 
     socket.on('start_game', () => {
-      console.log('=== DEBUG: WebSocket start_game ===');
-      console.log(`Player ${playerId} attempting to start game`);
-      
       const code = state.playerToLobby.get(playerId);
       if (!code) {
-        console.log(`ERROR: Player ${playerId} not in any lobby`);
         return;
       }
       const lobby = state.lobbies.get(code);
       if (!lobby) {
-        console.log(`ERROR: Lobby ${code} not found`);
         return;
       }
       if (lobby.hostId !== playerId) {
-        console.log(`ERROR: Player ${playerId} is not the host (host: ${lobby.hostId})`);
         return;
       }
 
-      console.log(`Starting game in lobby ${code} with ${lobby.players.length} players`);
       const startResult = startGame(lobby);
       if (!startResult.ok) {
-        console.log(`ERROR starting game: ${startResult.error}`);
         socket.emit('error', { message: startResult.error });
         return;
       }
@@ -233,7 +214,7 @@ export function setupGateway(io: SocketServer, state: ServerState): void {
       }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
       const code = state.playerToLobby.get(playerId);
       if (code) {
         const lobby = state.lobbies.get(code);
@@ -255,10 +236,7 @@ export function setupGateway(io: SocketServer, state: ServerState): void {
 
     // Debug: Catch-all event listener
     socket.onAny((eventName, ...args) => {
-      console.log('=== DEBUG: WebSocket Event Received ===');
-      console.log('Event:', eventName);
-      console.log('Args:', args);
-      console.log('From player:', playerId);
+      // Event logging removed for performance
     });
   });
 }
