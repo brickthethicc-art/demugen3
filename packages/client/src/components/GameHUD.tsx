@@ -3,8 +3,16 @@ import { useGameStore } from '../store/game-store.js';
 import { useGameActions } from '../hooks/useGameActions.js';
 import { useCardHover } from '../hooks/useUnitHover.js';
 import type { GameState } from '@mugen/shared';
-import { TurnPhase, CardType } from '@mugen/shared';
+import { TurnPhase, CardType, MAX_HAND_SIZE } from '@mugen/shared';
 import { Heart, Zap, ArrowRight, SkipForward, X } from 'lucide-react';
+
+const HAND_SLOT_COUNT = MAX_HAND_SIZE;
+const HAND_CARD_GAP_REM = 0.5;
+const HAND_CARD_MAX_WIDTH_PX = 136;
+const HAND_ROW_MAX_WIDTH_PX = HAND_SLOT_COUNT * HAND_CARD_MAX_WIDTH_PX + (HAND_SLOT_COUNT - 1) * 8;
+const HAND_PANEL_HORIZONTAL_PADDING_PX = 48;
+const HAND_PANEL_MAX_WIDTH_PX = HAND_ROW_MAX_WIDTH_PX + HAND_PANEL_HORIZONTAL_PADDING_PX;
+const HAND_CARD_WIDTH = `calc((100% - ${(HAND_SLOT_COUNT - 1) * HAND_CARD_GAP_REM}rem) / ${HAND_SLOT_COUNT})`;
 
 const PHASE_LABELS: Record<string, string> = {
   [TurnPhase.STANDBY]: 'Standby Phase',
@@ -81,12 +89,8 @@ function HandDisplay() {
   const sorceryModeActive = useGameStore((s) => s.sorceryModeActive);
   const selectedSorceryCard = useGameStore((s) => s.selectedSorceryCard);
   const { enterSorceryMode, exitSorceryMode } = useGameStore();
-
-  if (!myPlayer || myPlayer.hand.cards.length === 0) {
-    return (
-      <div className="text-gray-500 text-sm italic p-2">No cards in hand</div>
-    );
-  }
+  const handCards = myPlayer?.hand.cards ?? [];
+  const handSlots = Array.from({ length: HAND_SLOT_COUNT }, (_, i) => handCards[i] ?? null);
 
   const handleCardClick = (card: any) => {
     // Only sorcery cards are clickable for playing
@@ -162,36 +166,49 @@ function HandDisplay() {
           </button>
         </div>
       )}
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {myPlayer.hand.cards.map((card) => (
-          <div
-            key={card.id}
-            className={`flex-shrink-0 w-[136px] h-[184px] bg-mugen-bg border border-white/10 rounded-lg p-3 transition-colors ${
-              card.cardType === CardType.SORCERY && gameState?.turnPhase === TurnPhase.ABILITY && isMyTurn
-                ? 'cursor-pointer hover:border-mugen-accent/50'
-                : 'cursor-not-allowed opacity-60'
-            }`}
-            onMouseEnter={() => handleMouseEnter(card)}
-            onMouseLeave={handleMouseLeave}
-            onClick={() => handleCardClick(card)}
-          >
-          <div className="text-white font-semibold text-sm truncate">{card.name}</div>
-          <div className="flex flex-col text-xs text-gray-300 mt-1">
-            {card.cardType === 'UNIT' ? (
-              <>
-                <span>HP: {card.hp}</span>
-                <span>ATK: {card.atk}</span>
-                <span>Cost: {card.cost}</span>
-              </>
-            ) : (
-              <span>Cost: {card.cost}</span>
-            )}
-          </div>
-          <div className="text-xs text-gray-400 mt-1 truncate">
-            {card.cardType === 'UNIT' ? card.ability?.name : card.effect}
-          </div>
-          </div>
-        ))}
+      <div className="flex w-full gap-2 pb-2">
+        {handSlots.map((card, index) => {
+          if (!card) {
+            return (
+              <div
+                key={`empty-slot-${index}`}
+                className="h-[184px] rounded-lg border border-dashed border-white/10 bg-mugen-bg/40"
+                style={{ width: HAND_CARD_WIDTH, maxWidth: '136px' }}
+              />
+            );
+          }
+
+          return (
+            <div
+              key={card.id}
+              className={`h-[184px] bg-mugen-bg border border-white/10 rounded-lg p-3 transition-colors ${
+                card.cardType === CardType.SORCERY && gameState?.turnPhase === TurnPhase.ABILITY && isMyTurn
+                  ? 'cursor-pointer hover:border-mugen-accent/50'
+                  : 'cursor-not-allowed opacity-60'
+              }`}
+              style={{ width: HAND_CARD_WIDTH, maxWidth: '136px' }}
+              onMouseEnter={() => handleMouseEnter(card)}
+              onMouseLeave={handleMouseLeave}
+              onClick={() => handleCardClick(card)}
+            >
+              <div className="text-white font-semibold text-sm truncate">{card.name}</div>
+              <div className="flex flex-col text-xs text-gray-300 mt-1">
+                {card.cardType === CardType.UNIT ? (
+                  <>
+                    <span>HP: {card.hp}</span>
+                    <span>ATK: {card.atk}</span>
+                    <span>Cost: {card.cost}</span>
+                  </>
+                ) : (
+                  <span>Cost: {card.cost}</span>
+                )}
+              </div>
+              <div className="text-xs text-gray-400 mt-1 truncate">
+                {card.cardType === CardType.UNIT ? card.ability?.name : card.effect}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -444,7 +461,13 @@ export function GameHUD() {
       
       
       {/* Bottom: standby phase + hand */}
-      <div className="absolute left-0 p-6 pointer-events-auto" style={{ right: '50%', maxWidth: 'calc(50% - 48px)', bottom: '-21px' }}>
+      <div
+        className="absolute left-0 p-6 pointer-events-auto"
+        style={{
+          bottom: '-21px',
+          width: `min(calc(50% - 48px), ${HAND_PANEL_MAX_WIDTH_PX}px)`,
+        }}
+      >
         <div className="bg-mugen-surface/90 backdrop-blur-sm rounded-xl border border-white/5 px-6 pb-1 pt-[16px] w-full">
           <div className="flex-1 min-w-0">
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Hand</h3>

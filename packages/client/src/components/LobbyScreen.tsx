@@ -19,7 +19,7 @@ export function LobbyScreen() {
 
   const handleCreate = async () => {
     if (!name.trim()) return;
-    const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5174';
+    const serverUrl = import.meta.env.VITE_SERVER_URL || window.location.origin;
     console.log('=== DEBUG: Creating lobby ===');
     console.log('Server URL:', serverUrl);
     console.log('Player name:', name);
@@ -61,7 +61,7 @@ export function LobbyScreen() {
 
   const handleJoin = async () => {
     if (!name.trim() || !joinCode.trim()) return;
-    const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5174';
+    const serverUrl = import.meta.env.VITE_SERVER_URL || window.location.origin;
     console.log('=== DEBUG: Joining lobby ===');
     console.log('Server URL:', serverUrl);
     console.log('Lobby code:', joinCode);

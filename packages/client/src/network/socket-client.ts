@@ -82,9 +82,10 @@ export function connect(url: string): void {
   socket.on('team_locked', (data: { playerId: string; readyCount: number; totalCount: number }) => {
     const store = useGameStore.getState();
     const isCurrentPlayer = data.playerId === store.playerId;
+    const localPlayerReady = store.isPlayerReady || isCurrentPlayer;
     
     store.setQueueStatus(
-      isCurrentPlayer,
+      localPlayerReady,
       data.readyCount,
       data.totalCount,
       data.readyCount < data.totalCount

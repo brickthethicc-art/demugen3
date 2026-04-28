@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { canPlaySorcery, executeSorceryEffect, discardSorceryCard } from '../../src/engines/sorcery/index.js';
 import { processAttack, processMove } from '../../src/engines/turn/index.js';
 import { createGameState, createPlayer, createUnit, createSorcery, createUnitInstance } from '../factories.js';
-import { TurnPhase, CardType } from '../../src/types/index.js';
+import { TurnPhase, CardType, MAX_HAND_SIZE } from '../../src/types/index.js';
 
 describe('Sorcery Card System', () => {
   describe('STEP 1-3: Validation and Phase Checks', () => {
@@ -176,6 +176,68 @@ describe('Sorcery Card System', () => {
             expect(u.currentHp).toBe(3);
           });
         }
+      });
+    });
+
+    describe('s03: Scout Ahead', () => {
+      it('draws one card when hand has room', () => {
+        const scoutAhead = createSorcery({ id: 's03', effect: 'Draw 1 card' });
+        const filledHand = Array.from({ length: MAX_HAND_SIZE - 2 }, (_, i) =>
+          createSorcery({ id: `hand-${i}` })
+        );
+        const drawnCard = createSorcery({ id: 'drawn-card' });
+
+        const drawState = createGameState({
+          turnPhase: TurnPhase.ABILITY,
+          currentPlayerIndex: 0,
+          players: [
+            createPlayer({
+              id: 'player-1',
+              hand: { cards: [scoutAhead, ...filledHand] },
+              mainDeck: { cards: [drawnCard] },
+            }),
+            createPlayer({ id: 'player-2' }),
+          ],
+        });
+
+        const result = executeSorceryEffect(drawState, 'player-1', scoutAhead);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        const updatedPlayer = result.value.players[0]!;
+        expect(updatedPlayer.hand.cards).toHaveLength(MAX_HAND_SIZE);
+        expect(updatedPlayer.hand.cards.some((c: any) => c.id === drawnCard.id)).toBe(true);
+        expect(updatedPlayer.mainDeck.cards).toHaveLength(0);
+      });
+
+      it('draws even when hand is already at MAX_HAND_SIZE', () => {
+        const scoutAhead = createSorcery({ id: 's03', effect: 'Draw 1 card' });
+        const fullHand = Array.from({ length: MAX_HAND_SIZE }, (_, i) =>
+          createSorcery({ id: `hand-full-${i}` })
+        );
+        const topDeckCard = createSorcery({ id: 'top-deck-card' });
+
+        const fullHandState = createGameState({
+          turnPhase: TurnPhase.ABILITY,
+          currentPlayerIndex: 0,
+          players: [
+            createPlayer({
+              id: 'player-1',
+              hand: { cards: fullHand },
+              mainDeck: { cards: [topDeckCard] },
+            }),
+            createPlayer({ id: 'player-2' }),
+          ],
+        });
+
+        const result = executeSorceryEffect(fullHandState, 'player-1', scoutAhead);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        const updatedPlayer = result.value.players[0]!;
+        expect(updatedPlayer.hand.cards).toHaveLength(MAX_HAND_SIZE + 1);
+        expect(updatedPlayer.hand.cards.some((c: any) => c.id === topDeckCard.id)).toBe(true);
+        expect(updatedPlayer.mainDeck.cards).toHaveLength(0);
       });
     });
 

@@ -157,14 +157,24 @@ export function setupGateway(io: SocketServer, state: ServerState): void {
       // Check if ALL players have locked their teams
       const allLocked = updatedPlayers.every(p => p.team.locked === true);
       if (!allLocked) {
-        // Acknowledge; wait for remaining players
+        // Broadcast partial lock progress so all pregame clients can reflect ready status
         const lockedCount = updatedPlayers.filter(p => p.team.locked).length;
         const totalCount = updatedPlayers.length;
-        socket.emit('team_locked', { 
+        const lockPayload = {
           playerId, 
           readyCount: lockedCount, 
           totalCount: totalCount 
-        });
+        };
+
+        const code = state.playerToLobby.get(playerId);
+        const lobby = code ? state.lobbies.get(code) : undefined;
+        if (code && lobby) {
+          io.to(code).emit('team_locked', lockPayload);
+          broadcastGameState(io, updatedState, lobby);
+        } else {
+          socket.emit('team_locked', lockPayload);
+        }
+
         return;
       }
 

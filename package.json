@@ -4,6 +4,9 @@
   "private": true,
   "description": "Mugen — Online Multiplayer Strategy Card Game",
   "scripts": {
+    "localdev": "sh -c 'pkill -f \"tsx.*server\" 2>/dev/null || true; pkill -f \"vite\" 2>/dev/null || true; pkill -f \"node.*server\" 2>/dev/null || true; lsof -ti:3000,3001,5173 | xargs kill -9 2>/dev/null || true; sleep 1; pnpm --filter @mugen/server dev:local & SERVER_PID=$!; trap \"kill $SERVER_PID\" EXIT INT TERM; pnpm --filter @mugen/client dev:local'",
+    "multidev": "sh -c 'pkill -f \"tsx.*server\" 2>/dev/null || true; pkill -f \"vite\" 2>/dev/null || true; pkill -f \"node.*server\" 2>/dev/null || true; lsof -ti:3000,3001,5173 | xargs kill -9 2>/dev/null || true; sleep 1; pnpm --filter @mugen/server dev:beta & SERVER_PID=$!; trap \"kill $SERVER_PID\" EXIT INT TERM; pnpm --filter @mugen/client dev:beta'",
+    "betadev": "sh -c 'pnpm --filter @mugen/server dev:beta & SERVER_PID=$!; trap \"kill $SERVER_PID\" EXIT INT TERM; pnpm --filter @mugen/client dev:beta'",
     "test": "pnpm -r test",
     "test:watch": "pnpm -r test:watch",
     "typecheck": "pnpm -r typecheck",

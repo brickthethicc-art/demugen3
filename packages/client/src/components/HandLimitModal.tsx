@@ -22,6 +22,10 @@ export function HandLimitModal() {
   const myPlayer = gameState?.players.find((p) => p.id === playerId);
   const handCards = myPlayer?.hand.cards ?? [];
   const handExceeded = handCards.length > MAX_HAND_SIZE;
+  const isMyTurn =
+    !!gameState &&
+    !!playerId &&
+    gameState.players[gameState.currentPlayerIndex]?.id === playerId;
 
   const { handleMouseEnter, handleMouseLeave } = useCardHover();
 
@@ -56,6 +60,13 @@ export function HandLimitModal() {
       closeHandLimitModal();
     }
   }, [handLimitModalOpen, handExceeded, closeHandLimitModal]);
+
+  // Failsafe: always enforce discard modal when current-turn hand exceeds limit.
+  useEffect(() => {
+    if (isMyTurn && handExceeded && !handLimitModalOpen && !handLimitNotification) {
+      openHandLimitModal();
+    }
+  }, [isMyTurn, handExceeded, handLimitModalOpen, handLimitNotification, openHandLimitModal]);
 
   const handleDiscard = useCallback(
     (cardId: string) => {

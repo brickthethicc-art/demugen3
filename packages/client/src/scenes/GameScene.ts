@@ -53,6 +53,39 @@ function getPlayerColor(color?: string): number {
 
 }
 
+type UnitAnimationState = 'idle' | 'moving' | 'spawning' | 'dying';
+
+type UnitTweenBundle = {
+  move?: Phaser.Tweens.Tween;
+  scale?: Phaser.Tweens.Tween;
+  spawn?: Phaser.Tweens.Tween;
+  death?: Phaser.Tweens.Tween;
+};
+
+type PendingAttackFeedback = {
+  attackerInstanceId: string;
+  defenderInstanceId: string;
+  attackerPos: Position;
+  defenderPos: Position;
+};
+
+type PendingAbilityDamageFeedback = {
+  targetInstanceId: string;
+  targetPos: Position;
+  damage: number;
+  targetDied: boolean;
+};
+
+type PendingAbilityDeathFeedback = {
+  damage: number;
+  targetPos: Position;
+};
+
+type HealingEffectEntry = {
+  text: Phaser.GameObjects.Text;
+  tween: Phaser.Tweens.Tween;
+};
+
 
 
 export class GameScene extends Phaser.Scene {
@@ -82,6 +115,22 @@ export class GameScene extends Phaser.Scene {
   private lastAbilityTargets: AbilityTarget[] = [];
 
   private lastAttackTargets: AttackTarget[] = [];
+
+  private previousBoardUnits: Map<string, UnitInstance> = new Map();
+
+  private initialUnitsRendered = false;
+
+  private unitTweens: Map<string, UnitTweenBundle> = new Map();
+
+  private pendingAttackFeedback: PendingAttackFeedback | null = null;
+
+  private pendingAbilityDamageFeedback: PendingAbilityDamageFeedback[] | null = null;
+
+  private pendingAbilityDeathFeedback: Map<string, PendingAbilityDeathFeedback> = new Map();
+
+  private activeHealingEffects: Map<string, Set<HealingEffectEntry>> = new Map();
+
+  private readonly particleTextureKey = 'unit-effect-particle';
 
 
 
@@ -114,6 +163,8 @@ export class GameScene extends Phaser.Scene {
 
     this.sorceryFirstTargetGraphics = this.add.graphics();
     this.sorceryFirstTargetGraphics.setDepth(101);
+
+    this.ensureParticleTexture();
 
 
 
@@ -380,75 +431,911 @@ export class GameScene extends Phaser.Scene {
 
   private drawUnits(state: GameState) {
 
-    const activeUnitIds = new Set<string>();
-
-    
-
+    const activeVisibleUnitIds = new Set<string>();
     const visibleUnits = VisibilityEngine.getVisibleUnits(state);
+    const currentBoardUnits = this.getBoardUnitsById(state);
 
-    
+    this.capturePendingAbilityDamageFeedback(currentBoardUnits);
+    this.playPendingAttackFeedback(currentBoardUnits);
+    this.playPendingAbilityDamageFeedback(currentBoardUnits);
 
     visibleUnits.forEach((unit: UnitInstance) => {
-
+      if (!unit.position) return;
 
       const unitInstanceId = `${unit.ownerId}-${unit.card.id}`;
+      activeVisibleUnitIds.add(unitInstanceId);
 
-      activeUnitIds.add(unitInstanceId);
-
-
-
-      // Use actual unit positions (no perspective transformation needed)
-
-      let displayPosition = unit.position!;
-
-
-
-      const px = displayPosition.x * CELL_SIZE + CELL_SIZE / 2;
-
-      const py = displayPosition.y * CELL_SIZE + CELL_SIZE / 2;
-
-
-
-      // Use unit's assigned color instead of hardcoded array
-
+      const targetX = unit.position.x * CELL_SIZE + CELL_SIZE / 2;
+      const targetY = unit.position.y * CELL_SIZE + CELL_SIZE / 2;
       const unitColor = getPlayerColor(unit.color);
-
-      
+      const deathExplosionColor = unit.color ? unitColor : undefined;
 
       let container = this.unitSprites.get(unitInstanceId);
-
       if (!container) {
-
         container = this.createUnitSprite(unit, unitColor);
-
+        container.setPosition(targetX, targetY);
         this.unitSprites.set(unitInstanceId, container);
 
+        const shouldAnimateSpawn = this.initialUnitsRendered && !this.previousBoardUnits.has(unitInstanceId);
+        if (shouldAnimateSpawn) {
+          this.playDeploymentSpawnAnimation(unitInstanceId, container, targetX, targetY, unitColor);
+        }
       }
 
+      const previousUnit = this.previousBoardUnits.get(unitInstanceId);
+      const hasMoved = Boolean(
+        previousUnit?.position
+        && (previousUnit.position.x !== unit.position.x || previousUnit.position.y !== unit.position.y)
+      );
+      const healedAmount = previousUnit ? Math.max(0, unit.currentHp - previousUnit.currentHp) : 0;
 
+      if (unit.currentHp <= 0) {
+        if (container.getData('animationState') !== 'dying') {
+          const abilityDeathFeedback = this.pendingAbilityDeathFeedback.get(unitInstanceId);
+          if (abilityDeathFeedback) {
+            this.flashUnit(unitInstanceId, abilityDeathFeedback.damage);
+            this.time.delayedCall(380, () => {
+              this.emitAbilityLightningBolt(abilityDeathFeedback.targetPos);
+            });
+            this.playDeathAnimation(unitInstanceId, container, 420, true, deathExplosionColor);
+            this.pendingAbilityDeathFeedback.delete(unitInstanceId);
+          } else {
+            this.playDeathAnimation(unitInstanceId, container, 70, false, deathExplosionColor);
+          }
+        }
+      } else if (hasMoved) {
+        this.playMoveAnimation(unitInstanceId, container, targetX, targetY, previousUnit!.position!, unit.position, unitColor);
+      } else if (container.getData('animationState') !== 'moving' && container.getData('animationState') !== 'dying') {
+        container.setPosition(targetX, targetY);
+      }
 
-      container.setPosition(px, py);
+      if (healedAmount > 0 && container.getData('animationState') !== 'dying') {
+        this.showHealingEffect(unitInstanceId, container, healedAmount, unitColor);
+      }
 
       this.updateUnitSprite(container, unit, unitColor);
-
     });
 
-
-
-    // Remove dead units
-
     for (const [id, container] of this.unitSprites.entries()) {
-
-      if (!activeUnitIds.has(id)) {
-
-        container.destroy();
-
-        this.unitSprites.delete(id);
-
+      if (activeVisibleUnitIds.has(id)) {
+        continue;
       }
 
+      const boardUnit = currentBoardUnits.get(id);
+      const previousUnit = this.previousBoardUnits.get(id);
+      const deathExplosionColor = boardUnit?.color
+        ? getPlayerColor(boardUnit.color)
+        : previousUnit?.color
+          ? getPlayerColor(previousUnit.color)
+          : undefined;
+      const shouldPlayDeath = !boardUnit || boardUnit.currentHp <= 0 || !boardUnit.position;
+      if (shouldPlayDeath) {
+        if (container.getData('animationState') !== 'dying') {
+          const abilityDeathFeedback = this.pendingAbilityDeathFeedback.get(id);
+          if (abilityDeathFeedback) {
+            this.flashUnit(id, abilityDeathFeedback.damage);
+            this.time.delayedCall(380, () => {
+              this.emitAbilityLightningBolt(abilityDeathFeedback.targetPos);
+            });
+            this.playDeathAnimation(id, container, 420, true, deathExplosionColor);
+            this.pendingAbilityDeathFeedback.delete(id);
+          } else {
+            this.playDeathAnimation(id, container, 70, false, deathExplosionColor);
+          }
+        }
+      } else {
+        this.cleanupUnitContainer(id, container);
+      }
     }
 
+    this.previousBoardUnits = currentBoardUnits;
+    this.initialUnitsRendered = true;
+
+  }
+
+  private getBoardUnitsById(state: GameState): Map<string, UnitInstance> {
+    const units = new Map<string, UnitInstance>();
+    for (const player of state.players) {
+      for (const unit of player.units) {
+        units.set(`${unit.ownerId}-${unit.card.id}`, unit);
+      }
+    }
+    return units;
+  }
+
+  private getMoveDuration(from: Position, to: Position): number {
+    const cells = Math.abs(from.x - to.x) + Math.abs(from.y - to.y);
+    return Phaser.Math.Clamp(250 + cells * 90, 300, 500);
+  }
+
+  private getUnitTweens(unitId: string): UnitTweenBundle {
+    let tweens = this.unitTweens.get(unitId);
+    if (!tweens) {
+      tweens = {};
+      this.unitTweens.set(unitId, tweens);
+    }
+    return tweens;
+  }
+
+  private stopUnitTweens(unitId: string) {
+    const activeTweens = this.unitTweens.get(unitId);
+    if (!activeTweens) return;
+
+    activeTweens.move?.stop();
+    activeTweens.scale?.stop();
+    activeTweens.spawn?.stop();
+    activeTweens.death?.stop();
+
+    this.unitTweens.delete(unitId);
+  }
+
+  private playMoveAnimation(
+    unitId: string,
+    container: Phaser.GameObjects.Container,
+    targetX: number,
+    targetY: number,
+    from: Position,
+    to: Position,
+    unitColor: number,
+  ) {
+    if (container.getData('animationState') === 'dying') {
+      return;
+    }
+
+    this.clearHealingEffects(unitId);
+    this.stopUnitTweens(unitId);
+    container.setData('animationState', 'moving' as UnitAnimationState);
+    container.setData('moveTargetX', targetX);
+    container.setData('moveTargetY', targetY);
+    const duration = this.getMoveDuration(from, to);
+    const tweens = this.getUnitTweens(unitId);
+
+    const distance = Math.abs(from.x - to.x) + Math.abs(from.y - to.y);
+    if (distance >= 2) {
+      this.emitMovementTrail(container.x, container.y, unitColor);
+    }
+
+    tweens.scale = this.tweens.add({
+      targets: container,
+      scaleX: 1.08,
+      scaleY: 1.08,
+      duration: Math.floor(duration / 2),
+      ease: 'Cubic.Out',
+      yoyo: true,
+    });
+
+    tweens.move = this.tweens.add({
+      targets: container,
+      x: targetX,
+      y: targetY,
+      duration,
+      ease: 'Cubic.Out',
+      onComplete: () => {
+        container.setScale(1);
+        container.setData('moveTargetX', undefined);
+        container.setData('moveTargetY', undefined);
+        if (container.getData('animationState') !== 'dying') {
+          container.setData('animationState', 'idle' as UnitAnimationState);
+        }
+        this.unitTweens.delete(unitId);
+      },
+    });
+  }
+
+  private playDeploymentSpawnAnimation(
+    unitId: string,
+    container: Phaser.GameObjects.Container,
+    targetX: number,
+    targetY: number,
+    unitColor: number,
+  ) {
+    if (container.getData('animationState') === 'dying') {
+      return;
+    }
+
+    this.stopUnitTweens(unitId);
+    container.setData('animationState', 'spawning' as UnitAnimationState);
+    container.setAlpha(0);
+    container.setScale(0.1);
+    container.setPosition(targetX, targetY - CELL_SIZE * 1.2);
+
+    const tweens = this.getUnitTweens(unitId);
+
+    tweens.spawn = this.tweens.add({
+      targets: container,
+      x: targetX,
+      y: targetY,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 520,
+      ease: 'Elastic.Out',
+      onStart: () => {
+        this.emitParticleBurst(targetX, targetY, unitColor, 8);
+      },
+      onComplete: () => {
+        if (container.getData('animationState') !== 'dying') {
+          container.setData('animationState', 'idle' as UnitAnimationState);
+        }
+        this.unitTweens.delete(unitId);
+      },
+    });
+  }
+
+  private playDeathAnimation(
+    unitId: string,
+    container: Phaser.GameObjects.Container,
+    explosionDelayMs = 70,
+    preserveFlash = false,
+    unitColor?: number,
+  ) {
+    this.clearHealingEffects(unitId);
+    this.stopUnitTweens(unitId);
+    container.setData('animationState', 'dying' as UnitAnimationState);
+
+    const tweens = this.getUnitTweens(unitId);
+
+    const square = container.getData('mainSquare') as Phaser.GameObjects.Rectangle | undefined;
+    const existingFlashTween = container.getData('flashTween') as Phaser.Tweens.Tween | undefined;
+    if (existingFlashTween) {
+      if (!preserveFlash) {
+        existingFlashTween.stop();
+        container.setData('flashTween', null);
+      }
+    }
+
+    if (square && !preserveFlash) {
+      square.setFillStyle(0xffffff, 1);
+    }
+
+    this.time.delayedCall(explosionDelayMs, () => {
+      this.emitDeathExplosion(container.x, container.y, unitColor);
+
+      tweens.death = this.tweens.add({
+        targets: container,
+        alpha: 0,
+        duration: 220,
+        ease: 'Quad.Out',
+        onComplete: () => {
+          this.cleanupUnitContainer(unitId, container);
+        },
+      });
+    });
+  }
+
+  private cleanupUnitContainer(unitId: string, container: Phaser.GameObjects.Container) {
+    const flashTween = container.getData('flashTween') as Phaser.Tweens.Tween | undefined;
+    flashTween?.stop();
+
+    this.clearHealingEffects(unitId);
+    this.stopUnitTweens(unitId);
+    container.destroy();
+    this.unitSprites.delete(unitId);
+  }
+
+  private getHealingEffects(unitId: string): Set<HealingEffectEntry> {
+    let effects = this.activeHealingEffects.get(unitId);
+    if (!effects) {
+      effects = new Set<HealingEffectEntry>();
+      this.activeHealingEffects.set(unitId, effects);
+    }
+    return effects;
+  }
+
+  private clearHealingEffects(unitId: string) {
+    const effects = this.activeHealingEffects.get(unitId);
+    if (!effects) return;
+
+    effects.forEach((entry) => {
+      entry.tween.stop();
+      entry.text.destroy();
+    });
+
+    this.activeHealingEffects.delete(unitId);
+  }
+
+  private ensureParticleTexture() {
+    if (this.textures.exists(this.particleTextureKey)) {
+      return;
+    }
+
+    const graphics = this.add.graphics();
+    graphics.fillStyle(0xffffff, 1);
+    graphics.fillRect(0, 0, 6, 6);
+    graphics.generateTexture(this.particleTextureKey, 6, 6);
+    graphics.destroy();
+  }
+
+  private emitParticleBurst(x: number, y: number, color: number, quantity: number, includeWhite = false) {
+    const totalParticles = Phaser.Math.Clamp(quantity, 1, 30);
+    const tint = includeWhite && Math.random() > 0.5 ? 0xffffff : color;
+
+    const emitter = this.add.particles(x, y, this.particleTextureKey, {
+      speed: { min: 50, max: 160 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.6, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: { min: 400, max: 550 },
+      tint,
+      quantity: totalParticles,
+      emitting: false,
+    });
+
+    emitter.explode(totalParticles, x, y);
+    this.time.delayedCall(600, () => emitter.destroy());
+  }
+
+  private emitHealingParticles(x: number, y: number, color: number) {
+    const totalParticles = Phaser.Math.Between(12, 18);
+    const emitter = this.add.particles(x, y, this.particleTextureKey, {
+      speed: { min: 50, max: 130 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.6, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: { min: 400, max: 550 },
+      gravityY: -20,
+      tint: color,
+      quantity: totalParticles,
+      emitting: false,
+    });
+
+    emitter.explode(totalParticles, x, y);
+    this.time.delayedCall(600, () => emitter.destroy());
+  }
+
+  private emitMovementTrail(x: number, y: number, color: number) {
+    const ghost = this.add.rectangle(x, y, CELL_SIZE - 4, CELL_SIZE - 4, color, 0.35);
+    this.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      scaleX: 0.85,
+      scaleY: 0.85,
+      duration: 180,
+      ease: 'Quart.Out',
+      onComplete: () => ghost.destroy(),
+    });
+  }
+
+  private emitShockwave(x: number, y: number, color: number) {
+    const shockwave = this.add.graphics();
+    shockwave.setDepth(290);
+    shockwave.lineStyle(3, color, 0.8);
+    shockwave.strokeCircle(x, y, 8);
+
+    this.tweens.add({
+      targets: shockwave,
+      scale: 5,
+      alpha: 0,
+      duration: 380,
+      ease: 'Cubic.Out',
+      onUpdate: () => {
+        shockwave.clear();
+        shockwave.lineStyle(3, color, shockwave.alpha);
+        shockwave.strokeCircle(x, y, 8);
+      },
+      onComplete: () => shockwave.destroy(),
+    });
+  }
+
+  private blendColors(baseColor: number, accentColor: number, accentWeight = 0.42): number {
+    return Phaser.Display.Color.Interpolate.ColorWithColor(
+      Phaser.Display.Color.ValueToColor(baseColor),
+      Phaser.Display.Color.ValueToColor(accentColor),
+      100,
+      Math.floor(Phaser.Math.Clamp(accentWeight, 0, 1) * 100),
+    ).color;
+  }
+
+  private emitDeathExplosion(x: number, y: number, unitColor?: number) {
+    const primaryColor = unitColor ?? 0xef4444;
+    const secondaryColor = unitColor !== undefined ? this.blendColors(unitColor, 0xf97316) : 0xf97316;
+
+    this.emitParticleBurst(x, y, primaryColor, 36, true);
+    this.emitParticleBurst(x, y, secondaryColor, 26, true);
+    this.emitShockwave(x, y, primaryColor);
+
+    const core = this.add.circle(x, y, 9, 0xffffff, 0.95);
+    core.setDepth(300);
+
+    this.tweens.add({
+      targets: core,
+      scale: 2.6,
+      alpha: 0,
+      duration: 180,
+      ease: 'Cubic.Out',
+      onComplete: () => core.destroy(),
+    });
+  }
+
+  private emitAbilityLightningBolt(position: Position) {
+    const { x, y } = this.gridToWorld(position);
+
+    this.emitParticleBurst(x, y, 0xfacc15, 18, true);
+
+    const boltGlow = this.add.graphics();
+    boltGlow.setDepth(299);
+    boltGlow.setAlpha(0.9);
+
+    const bolt = this.add.graphics();
+    bolt.setDepth(301);
+    bolt.setAlpha(1);
+
+    const top = { x, y: y - 18 };
+    const upper = { x: x - 4, y: y - 6 };
+    const mid = { x: x + 3, y: y + 2 };
+    const lower = { x: x - 2, y: y + 11 };
+    const tip = { x: x + 2, y: y + 19 };
+
+    boltGlow.lineStyle(8, 0xfacc15, 0.35);
+    boltGlow.beginPath();
+    boltGlow.moveTo(top.x, top.y);
+    boltGlow.lineTo(upper.x, upper.y);
+    boltGlow.lineTo(mid.x, mid.y);
+    boltGlow.lineTo(lower.x, lower.y);
+    boltGlow.lineTo(tip.x, tip.y);
+    boltGlow.strokePath();
+
+    bolt.lineStyle(3, 0xfef08a, 1);
+    bolt.beginPath();
+    bolt.moveTo(top.x, top.y);
+    bolt.lineTo(upper.x, upper.y);
+    bolt.lineTo(mid.x, mid.y);
+    bolt.lineTo(lower.x, lower.y);
+    bolt.lineTo(tip.x, tip.y);
+    bolt.strokePath();
+
+    const lightningCore = this.add.circle(x, y + 5, 5, 0xfef08a, 0.9);
+    lightningCore.setDepth(302);
+
+    this.tweens.add({
+      targets: [boltGlow, bolt, lightningCore],
+      alpha: 0,
+      duration: 190,
+      ease: 'Cubic.Out',
+      onComplete: () => {
+        boltGlow.destroy();
+        bolt.destroy();
+        lightningCore.destroy();
+      },
+    });
+  }
+
+  private gridToWorld(position: Position): { x: number; y: number } {
+    return {
+      x: position.x * CELL_SIZE + CELL_SIZE / 2,
+      y: position.y * CELL_SIZE + CELL_SIZE / 2,
+    };
+  }
+
+  private showDamageNumber(unitPosition: Position, damage: number, isOverkill: boolean) {
+    const { x, y } = this.gridToWorld(unitPosition);
+    const clampedDamage = Math.max(0, damage);
+    const textValue = isOverkill ? `${clampedDamage}! (OVERKILL)` : `${clampedDamage}`;
+    const damageText = this.add.text(x, y, textValue, {
+      fontSize: isOverkill ? '20px' : '14px',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+      color: '#ef4444',
+      stroke: '#000000',
+      strokeThickness: isOverkill ? 4 : 3,
+    });
+
+    damageText.setOrigin(0.5);
+    damageText.setDepth(320);
+
+    this.tweens.add({
+      targets: damageText,
+      y: y - 26,
+      alpha: 0,
+      duration: 2000,
+      ease: 'Cubic.Out',
+      onComplete: () => damageText.destroy(),
+    });
+  }
+
+  private showHealingEffect(
+    unitId: string,
+    container: Phaser.GameObjects.Container,
+    healedAmount: number,
+    unitColor: number,
+  ) {
+    const clampedHeal = Math.max(0, healedAmount);
+    if (clampedHeal <= 0) return;
+    if (container.getData('animationState') === 'dying') return;
+
+    const movingTargetX = container.getData('moveTargetX') as number | undefined;
+    const movingTargetY = container.getData('moveTargetY') as number | undefined;
+    const startX = movingTargetX ?? container.x;
+    const startY = movingTargetY ?? container.y;
+
+    const healingText = this.add.text(startX, startY, `+${clampedHeal}`, {
+      fontSize: clampedHeal >= 10 ? '20px' : '14px',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+      color: '#22c55e',
+      stroke: '#000000',
+      strokeThickness: clampedHeal >= 10 ? 4 : 3,
+    });
+
+    healingText.setOrigin(0.5);
+    healingText.setDepth(320);
+
+    const effects = this.getHealingEffects(unitId);
+    const effectEntry = {} as HealingEffectEntry;
+
+    const tween = this.tweens.add({
+      targets: healingText,
+      y: startY - 26,
+      alpha: 0,
+      duration: 2000,
+      ease: 'Cubic.Out',
+      onComplete: () => {
+        healingText.destroy();
+        effects.delete(effectEntry);
+        if (effects.size === 0) {
+          this.activeHealingEffects.delete(unitId);
+        }
+      },
+    });
+
+    effectEntry.text = healingText;
+    effectEntry.tween = tween;
+    effects.add(effectEntry);
+
+    this.emitHealingParticles(startX, startY, 0x22c55e);
+
+    const square = container.getData('mainSquare') as Phaser.GameObjects.Rectangle | undefined;
+    if (square) {
+      const existingFlashTween = container.getData('flashTween') as Phaser.Tweens.Tween | undefined;
+      if (existingFlashTween) {
+        existingFlashTween.stop();
+      }
+
+      square.setFillStyle(0x22c55e, 1);
+      const healFlashTween = this.tweens.addCounter({
+        from: 0,
+        to: 1,
+        duration: 320,
+        ease: 'Sine.Out',
+        onUpdate: (flashTween) => {
+          const progress = flashTween.getValue() ?? 0;
+          const color = Phaser.Display.Color.Interpolate.ColorWithColor(
+            Phaser.Display.Color.ValueToColor(0x22c55e),
+            Phaser.Display.Color.ValueToColor(unitColor),
+            100,
+            Math.floor(progress * 100),
+          ).color;
+          square.setFillStyle(color, 0.9);
+        },
+        onComplete: () => {
+          square.setFillStyle(unitColor, 0.9);
+          container.setData('flashTween', null);
+        },
+      });
+
+      container.setData('flashTween', healFlashTween);
+    }
+  }
+
+  private showSlashEffect(attackerPos: Position, defenderPos: Position) {
+    const start = this.gridToWorld(attackerPos);
+    const end = this.gridToWorld(defenderPos);
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+    const angle = Math.atan2(dy, dx);
+    const perpX = -Math.sin(angle);
+    const perpY = Math.cos(angle);
+
+    const directionIndicator = this.add.graphics();
+    directionIndicator.setDepth(278);
+    directionIndicator.setAlpha(0);
+
+    const indicatorEndT = 0.84;
+    const indicatorEndX = Phaser.Math.Linear(start.x, end.x, indicatorEndT);
+    const indicatorEndY = Phaser.Math.Linear(start.y, end.y, indicatorEndT);
+    directionIndicator.lineStyle(2, 0xfff1c2, 0.9);
+    directionIndicator.lineBetween(start.x, start.y, indicatorEndX, indicatorEndY);
+
+    const arrowTipX = Phaser.Math.Linear(start.x, end.x, 0.92);
+    const arrowTipY = Phaser.Math.Linear(start.y, end.y, 0.92);
+    const arrowSize = Phaser.Math.Clamp(distance * 0.14, 5, 9);
+    directionIndicator.lineBetween(
+      arrowTipX,
+      arrowTipY,
+      arrowTipX + Math.cos(angle + Math.PI - 0.5) * arrowSize,
+      arrowTipY + Math.sin(angle + Math.PI - 0.5) * arrowSize,
+    );
+    directionIndicator.lineBetween(
+      arrowTipX,
+      arrowTipY,
+      arrowTipX + Math.cos(angle + Math.PI + 0.5) * arrowSize,
+      arrowTipY + Math.sin(angle + Math.PI + 0.5) * arrowSize,
+    );
+
+    const slash = this.add.graphics();
+    slash.setDepth(281);
+    slash.setAlpha(0);
+
+    const slashGlow = this.add.graphics();
+    slashGlow.setDepth(280);
+    slashGlow.setAlpha(0);
+
+    const slashAngle = angle + Phaser.Math.DegToRad(18);
+    const slashDirX = Math.cos(slashAngle);
+    const slashDirY = Math.sin(slashAngle);
+    const slashPerpX = -slashDirY;
+    const slashPerpY = slashDirX;
+
+    const halfLength = Phaser.Math.Clamp(distance * 0.48, 14, 24);
+    const secondaryHalfLength = halfLength * 0.85;
+    const laneOffset = Phaser.Math.Clamp(distance * 0.08, 2, 4);
+
+    slashGlow.lineStyle(12, 0xff8b3d, 0.5);
+    slashGlow.lineBetween(
+      end.x - slashDirX * halfLength,
+      end.y - slashDirY * halfLength,
+      end.x + slashDirX * halfLength,
+      end.y + slashDirY * halfLength,
+    );
+    slashGlow.lineBetween(
+      end.x - slashDirX * secondaryHalfLength + slashPerpX * laneOffset,
+      end.y - slashDirY * secondaryHalfLength + slashPerpY * laneOffset,
+      end.x + slashDirX * secondaryHalfLength + slashPerpX * laneOffset,
+      end.y + slashDirY * secondaryHalfLength + slashPerpY * laneOffset,
+    );
+
+    slash.lineStyle(5, 0xffffff, 1);
+    slash.lineBetween(
+      end.x - slashDirX * halfLength,
+      end.y - slashDirY * halfLength,
+      end.x + slashDirX * halfLength,
+      end.y + slashDirY * halfLength,
+    );
+    slash.lineStyle(3, 0xffd2a6, 0.95);
+    slash.lineBetween(
+      end.x - slashDirX * secondaryHalfLength + slashPerpX * laneOffset,
+      end.y - slashDirY * secondaryHalfLength + slashPerpY * laneOffset,
+      end.x + slashDirX * secondaryHalfLength + slashPerpX * laneOffset,
+      end.y + slashDirY * secondaryHalfLength + slashPerpY * laneOffset,
+    );
+
+    const impactRing = this.add.circle(end.x, end.y, 4, 0xfff1c2, 0.75);
+    impactRing.setDepth(282);
+    impactRing.setScale(0.5);
+
+    const impactCore = this.add.circle(end.x + perpX * 1.5, end.y + perpY * 1.5, 3, 0xffffff, 0.9);
+    impactCore.setDepth(283);
+    impactCore.setScale(0.4);
+
+    this.tweens.add({
+      targets: directionIndicator,
+      alpha: 1,
+      duration: 80,
+      ease: 'Sine.Out',
+      yoyo: true,
+      hold: 110,
+      onComplete: () => {
+        directionIndicator.destroy();
+      },
+    });
+
+    this.tweens.add({
+      targets: [slash, slashGlow],
+      alpha: 1,
+      duration: 100,
+      ease: 'Sine.Out',
+      yoyo: true,
+      hold: 260,
+      onComplete: () => {
+        slash.destroy();
+        slashGlow.destroy();
+      },
+    });
+
+    this.tweens.add({
+      targets: impactRing,
+      alpha: 0,
+      scale: 2.2,
+      duration: 280,
+      ease: 'Cubic.Out',
+      onComplete: () => impactRing.destroy(),
+    });
+
+    this.tweens.add({
+      targets: impactCore,
+      alpha: 0,
+      scale: 1.7,
+      duration: 210,
+      ease: 'Sine.Out',
+      onComplete: () => impactCore.destroy(),
+    });
+  }
+
+  private flashUnit(unitInstanceId: string, damage: number, durationMs = 420) {
+    const container = this.unitSprites.get(unitInstanceId);
+    if (!container) return;
+
+    const square = container.getData('mainSquare') as Phaser.GameObjects.Rectangle | undefined;
+    if (!square) return;
+
+    const existingFlashTween = container.getData('flashTween') as Phaser.Tweens.Tween | undefined;
+    if (existingFlashTween) {
+      existingFlashTween.stop();
+    }
+
+    const baseColor = (container.getData('unitColor') as number | undefined) ?? 0xffffff;
+    const maxAlphaBoost = Phaser.Math.Clamp(damage / 8, 0, 0.2);
+    const baseAlpha = 0.9 + maxAlphaBoost;
+
+    square.setFillStyle(0xffffff, baseAlpha);
+
+    const flashTween = this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: durationMs,
+      ease: 'Sine.Out',
+      onUpdate: (tween) => {
+        const progress = tween.getValue() ?? 0;
+        let color: number;
+
+        if (progress < 0.5) {
+          const lerp = progress / 0.5;
+          color = Phaser.Display.Color.Interpolate.ColorWithColor(
+            Phaser.Display.Color.ValueToColor(0xffffff),
+            Phaser.Display.Color.ValueToColor(0xff0000),
+            100,
+            Math.floor(lerp * 100),
+          ).color;
+        } else {
+          const lerp = (progress - 0.5) / 0.5;
+          color = Phaser.Display.Color.Interpolate.ColorWithColor(
+            Phaser.Display.Color.ValueToColor(0xff0000),
+            Phaser.Display.Color.ValueToColor(baseColor),
+            100,
+            Math.floor(lerp * 100),
+          ).color;
+        }
+
+        square.setFillStyle(color, baseAlpha);
+      },
+      onComplete: () => {
+        square.setFillStyle(baseColor, 0.9);
+        container.setData('flashTween', null);
+      },
+    });
+
+    container.setData('flashTween', flashTween);
+  }
+
+  private capturePendingAbilityDamageFeedback(currentBoardUnits: Map<string, UnitInstance>) {
+    const abilityWasUsed = Array.from(currentBoardUnits.entries()).some(([id, currentUnit]) => {
+      const previousUnit = this.previousBoardUnits.get(id);
+      return Boolean(
+        previousUnit
+        && !previousUnit.hasUsedAbilityThisTurn
+        && currentUnit.hasUsedAbilityThisTurn,
+      );
+    });
+
+    if (!abilityWasUsed) {
+      return;
+    }
+
+    const feedback: PendingAbilityDamageFeedback[] = [];
+
+    for (const [id, previousUnit] of this.previousBoardUnits.entries()) {
+      const currentUnit = currentBoardUnits.get(id);
+      const damage = Math.max(0, previousUnit.currentHp - (currentUnit?.currentHp ?? 0));
+      if (damage <= 0) {
+        continue;
+      }
+
+      const targetPos = currentUnit?.position ?? previousUnit.position;
+      if (!targetPos) {
+        continue;
+      }
+
+      feedback.push({
+        targetInstanceId: id,
+        targetPos,
+        damage,
+        targetDied: !currentUnit || currentUnit.currentHp <= 0 || !currentUnit.position,
+      });
+    }
+
+    if (feedback.length === 0) {
+      return;
+    }
+
+    this.pendingAbilityDamageFeedback = feedback;
+  }
+
+  private playPendingAbilityDamageFeedback(currentBoardUnits: Map<string, UnitInstance>) {
+    if (!this.pendingAbilityDamageFeedback) {
+      return;
+    }
+
+    const feedback = this.pendingAbilityDamageFeedback;
+
+    feedback.forEach((entry) => {
+      if (entry.targetDied) {
+        this.pendingAbilityDeathFeedback.set(entry.targetInstanceId, {
+          damage: entry.damage,
+          targetPos: entry.targetPos,
+        });
+        return;
+      }
+
+      const currentUnit = currentBoardUnits.get(entry.targetInstanceId);
+      if (!currentUnit || currentUnit.currentHp <= 0 || !currentUnit.position) {
+        return;
+      }
+
+      this.flashUnit(entry.targetInstanceId, entry.damage);
+      this.time.delayedCall(430, () => {
+        const container = this.unitSprites.get(entry.targetInstanceId);
+        if (!container || container.getData('animationState') === 'dying') {
+          return;
+        }
+
+        this.emitAbilityLightningBolt(entry.targetPos);
+      });
+    });
+
+    this.pendingAbilityDamageFeedback = null;
+  }
+
+  private playPendingAttackFeedback(currentBoardUnits: Map<string, UnitInstance>) {
+    if (!this.pendingAttackFeedback) return;
+
+    const feedback = this.pendingAttackFeedback;
+    const previousAttacker = this.previousBoardUnits.get(feedback.attackerInstanceId);
+    const previousDefender = this.previousBoardUnits.get(feedback.defenderInstanceId);
+    if (!previousAttacker || !previousDefender) {
+      this.pendingAttackFeedback = null;
+      return;
+    }
+
+    const currentAttacker = currentBoardUnits.get(feedback.attackerInstanceId);
+    const currentDefender = currentBoardUnits.get(feedback.defenderInstanceId);
+
+    const attackerDamage = Math.max(0, previousAttacker.currentHp - (currentAttacker?.currentHp ?? 0));
+    const defenderDamage = Math.max(0, previousDefender.currentHp - (currentDefender?.currentHp ?? 0));
+
+    const attackerActed = Boolean(
+      (currentAttacker && !previousAttacker.hasAttackedThisTurn && currentAttacker.hasAttackedThisTurn)
+      || (!currentAttacker && previousAttacker.currentHp > 0)
+    );
+
+    if (!attackerActed && attackerDamage === 0 && defenderDamage === 0) {
+      return;
+    }
+
+    const attackerSurvived = Boolean(currentAttacker && currentAttacker.currentHp > 0);
+    const attackerFlashDuration = attackerSurvived ? 210 : 420;
+
+    this.flashUnit(feedback.attackerInstanceId, attackerDamage, attackerFlashDuration);
+    this.flashUnit(feedback.defenderInstanceId, defenderDamage);
+
+    this.time.delayedCall(70, () => {
+      this.showSlashEffect(feedback.attackerPos, feedback.defenderPos);
+    });
+
+    this.time.delayedCall(130, () => {
+      this.showDamageNumber(
+        feedback.attackerPos,
+        attackerDamage,
+        attackerDamage > previousAttacker.currentHp,
+      );
+      this.showDamageNumber(
+        feedback.defenderPos,
+        defenderDamage,
+        defenderDamage > previousDefender.currentHp,
+      );
+    });
+
+    this.pendingAttackFeedback = null;
   }
 
 
@@ -481,7 +1368,11 @@ export class GameScene extends Phaser.Scene {
 
     const hpBar = this.add.graphics();
 
+    container.setData('mainSquare', square);
     container.setData('hpBar', hpBar);
+    container.setData('unitColor', color);
+    container.setData('animationState', 'idle' as UnitAnimationState);
+    container.setData('flashTween', null);
 
 
 
@@ -906,6 +1797,22 @@ export class GameScene extends Phaser.Scene {
       const target = attackTargets.find((t) => t.position.x === pos.x && t.position.y === pos.y);
 
       if (target) {
+
+        const attackerOwnerId = store.playerId;
+        const attackerUnit = attackerOwnerId && gameState
+          ? gameState.players
+            .find((player) => player.id === attackerOwnerId)
+            ?.units.find((unit) => unit.card.id === selectedUnitId)
+          : undefined;
+
+        if (attackerOwnerId && attackerUnit?.position) {
+          this.pendingAttackFeedback = {
+            attackerInstanceId: `${attackerOwnerId}-${selectedUnitId}`,
+            defenderInstanceId: `${target.ownerId}-${target.unitId}`,
+            attackerPos: attackerUnit.position,
+            defenderPos: target.position,
+          };
+        }
 
         import('../network/socket-client.js').then(({ sendIntent }) => {
 

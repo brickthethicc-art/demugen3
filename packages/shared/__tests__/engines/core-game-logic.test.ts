@@ -143,7 +143,7 @@ describe('1. Turn Rotation & Card Draw', () => {
     expect(after.players[0]!.hand.cards).toHaveLength(0);
   });
 
-  it('does not draw when hand is already at MAX_HAND_SIZE', () => {
+  it('draws even when hand is already at MAX_HAND_SIZE', () => {
     const state = createTestGame({ turnRotation: 1 });
     const fullHand: Card[] = Array.from({ length: MAX_HAND_SIZE }, (_, i) =>
       createSorcery({ id: `hand-${i}` })
@@ -152,8 +152,8 @@ describe('1. Turn Rotation & Card Draw', () => {
     const fullHandState = { ...state, players: [p1, state.players[1]!] };
 
     const after = startTurn(fullHandState);
-    expect(after.players[0]!.hand.cards).toHaveLength(MAX_HAND_SIZE);
-    expect(after.players[0]!.mainDeck.cards).toHaveLength(3);
+    expect(after.players[0]!.hand.cards).toHaveLength(MAX_HAND_SIZE + 1);
+    expect(after.players[0]!.mainDeck.cards).toHaveLength(2);
   });
 
   it('discard pile increases after card use via playCard', () => {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGameStore } from '../store/game-store.js';
 import { CardType } from '@mugen/shared';
 import type { UnitCard } from '@mugen/shared';
-import { Coins, Users, Shield, Swords } from 'lucide-react';
+import { Coins, Users, Shield, Swords, Check, Clock3 } from 'lucide-react';
 
 export function StartingUnitSelection() {
   console.log('STARTING UNIT SELECTION COMPONENT LOADED');
@@ -15,7 +15,10 @@ export function StartingUnitSelection() {
     isPlayerReady,
     readyPlayersCount,
     totalPlayersCount,
-    isWaitingForOthers
+    isWaitingForOthers,
+    lobbyPlayers,
+    gameState,
+    playerId,
   } = useGameStore();
 
   console.log('STARTING UNIT SELECTION - selectedDeck length:', selectedDeck?.length || 0);
@@ -109,6 +112,11 @@ export function StartingUnitSelection() {
   };
 
   const selectedUnitIds = new Set(startingUnits.map(u => u.id));
+  const pregamePlayers =
+    gameState?.players?.length
+      ? gameState.players.map((p) => ({ id: p.id, name: p.name, isReady: p.team.locked }))
+      : lobbyPlayers.map((p) => ({ id: p.id, name: p.name, isReady: false }));
+  const pregameReadyCount = pregamePlayers.filter((p) => p.isReady).length;
 
   return (
     <div className="min-h-screen bg-mugen-bg text-white p-4">
@@ -163,89 +171,123 @@ export function StartingUnitSelection() {
             )}
           </div>
           
-          {/* Selected Units Display - Always show 6 slots */}
-          <div className="mb-4">
-            <div className="grid grid-cols-6 gap-2">
-              {Array.from({ length: 6 }).map((_, index) => {
-                const unit = startingUnits[index];
-                const isEmpty = !unit;
-                
-                return (
-                  <div
-                    key={index}
-                    className={`relative rounded-lg p-2 border text-center transition-all ${
-                      isEmpty 
-                        ? 'bg-mugen-surface/30 border-dashed border-gray-600/50 flex items-center justify-center'
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-4 mb-4">
+            {/* Selected Units Display - Always show 6 slots */}
+            <div>
+              <div className="grid grid-cols-6 gap-3">
+                {Array.from({ length: 6 }).map((_, index) => {
+                  const unit = startingUnits[index];
+                  const isEmpty = !unit;
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={`relative rounded-lg p-3 min-h-[132px] border text-center transition-all ${
+                        isEmpty 
+                          ? 'bg-mugen-surface/30 border-dashed border-gray-600/50 flex items-center justify-center'
                         : isPlayerReady 
-                          ? 'bg-mugen-surface/70 cursor-not-allowed opacity-70'
-                          : 'bg-mugen-surface/70 cursor-move'
-                    } ${
-                      index < 3 
-                        ? 'border-blue-500/50 ring-1 ring-blue-500/30' 
-                        : 'border-orange-500/50 ring-1 ring-orange-500/30'
-                    } ${
-                      !isEmpty && !isPlayerReady && draggedIndex === index ? 'opacity-50 scale-95' : ''
-                    } ${
-                      !isEmpty && !isPlayerReady && dragOverIndex === index ? 'scale-105 ring-2 ring-yellow-400' : ''
-                    }`}
-                    draggable={!isEmpty && !isPlayerReady}
-                    onDragStart={() => !isEmpty && !isPlayerReady && handleDragStart(index)}
-                    onDragOver={(e) => !isPlayerReady && handleDragOver(e, index)}
-                    onDragLeave={isPlayerReady ? undefined : handleDragLeave}
-                    onDrop={(e) => !isPlayerReady && handleDrop(e, index)}
-                    onDragEnd={isPlayerReady ? undefined : handleDragEnd}
-                  >
-                    {isEmpty ? (
-                      <div className="text-gray-500 text-2xl">+</div>
+                            ? 'bg-mugen-surface/70 cursor-not-allowed opacity-70'
+                            : 'bg-mugen-surface/70 cursor-move'
+                      } ${
+                        index < 3 
+                          ? 'border-blue-500/50 ring-1 ring-blue-500/30' 
+                          : 'border-orange-500/50 ring-1 ring-orange-500/30'
+                      } ${
+                        !isEmpty && !isPlayerReady && draggedIndex === index ? 'opacity-50 scale-95' : ''
+                      } ${
+                        !isEmpty && !isPlayerReady && dragOverIndex === index ? 'scale-105 ring-2 ring-yellow-400' : ''
+                      }`}
+                      draggable={!isEmpty && !isPlayerReady}
+                      onDragStart={() => !isEmpty && !isPlayerReady && handleDragStart(index)}
+                      onDragOver={(e) => !isPlayerReady && handleDragOver(e, index)}
+                      onDragLeave={isPlayerReady ? undefined : handleDragLeave}
+                      onDrop={(e) => !isPlayerReady && handleDrop(e, index)}
+                      onDragEnd={isPlayerReady ? undefined : handleDragEnd}
+                    >
+                      {isEmpty ? (
+                        <div className="text-gray-500 text-3xl">+</div>
+                      ) : (
+                        <>
+                          {/* Unit type indicator */}
+                          <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full text-xs flex items-center justify-center ${
+                            index < 3 ? 'bg-blue-500' : 'bg-orange-500'
+                          }`}>
+                            <span className="text-white text-[8px] font-bold">
+                              {index < 3 ? 'A' : 'R'}
+                            </span>
+                          </div>
+                          
+                          {/* Unit name */}
+                          <div className="font-semibold text-sm truncate mb-2">
+                            {unit.name}
+                          </div>
+                          
+                          {/* Unit stats */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-center items-center gap-1">
+                              <Shield size={10} className="text-gray-400" />
+                              <span className="text-sm text-gray-300">{unit.hp}</span>
+                            </div>
+                            <div className="flex justify-center items-center gap-1">
+                              <Swords size={10} className="text-gray-400" />
+                              <span className="text-sm text-gray-300">{unit.atk}</span>
+                            </div>
+                          </div>
+                          
+                          {/* Cost */}
+                          <div className="flex justify-center items-center gap-1 text-mugen-gold">
+                            <Coins size={10} />
+                            <span className="text-sm font-mono">{unit.cost}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Legend */}
+              <div className="flex justify-center gap-6 mt-3 text-xs">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                  <span className="text-gray-400">Active (First 3)</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                  <span className="text-gray-400">Reserve (Last 3)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Ready Status List */}
+            <div className="bg-mugen-bg/60 rounded-lg border border-white/10 p-3 h-fit">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-2">
+                <Users size={14} className="text-mugen-accent" />
+                Ready Status
+              </div>
+
+              <div className="space-y-2">
+                {pregamePlayers.map((player) => (
+                  <div key={player.id} className="flex items-center justify-between bg-mugen-surface/60 rounded-md px-2.5 py-2 border border-white/5">
+                    <span className="text-xs text-gray-200 truncate pr-2">
+                      {player.name}
+                      {player.id === playerId ? ' (You)' : ''}
+                    </span>
+                    {player.isReady ? (
+                      <span className="flex items-center gap-1 text-[11px] text-green-400 font-semibold whitespace-nowrap">
+                        <Check size={12} /> Ready
+                      </span>
                     ) : (
-                      <>
-                        {/* Unit type indicator */}
-                        <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full text-xs flex items-center justify-center ${
-                          index < 3 ? 'bg-blue-500' : 'bg-orange-500'
-                        }`}>
-                          <span className="text-white text-[8px] font-bold">
-                            {index < 3 ? 'A' : 'R'}
-                          </span>
-                        </div>
-                        
-                        {/* Unit name */}
-                        <div className="font-semibold text-xs truncate mb-1">
-                          {unit.name}
-                        </div>
-                        
-                        {/* Unit stats */}
-                        <div className="space-y-1">
-                          <div className="flex justify-center items-center gap-1">
-                            <Shield size={10} className="text-gray-400" />
-                            <span className="text-xs text-gray-300">{unit.hp}</span>
-                          </div>
-                          <div className="flex justify-center items-center gap-1">
-                            <Swords size={10} className="text-gray-400" />
-                            <span className="text-xs text-gray-300">{unit.atk}</span>
-                          </div>
-                        </div>
-                        
-                        {/* Cost */}
-                        <div className="flex justify-center items-center gap-1 text-mugen-gold">
-                          <Coins size={10} />
-                          <span className="text-xs font-mono">{unit.cost}</span>
-                        </div>
-                      </>
+                      <span className="flex items-center gap-1 text-[11px] text-gray-400 whitespace-nowrap">
+                        <Clock3 size={12} /> Waiting
+                      </span>
                     )}
                   </div>
-                );
-              })}
-            </div>
-            
-            {/* Legend */}
-            <div className="flex justify-center gap-6 mt-3 text-xs">
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                <span className="text-gray-400">Active (First 3)</span>
+                ))}
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                <span className="text-gray-400">Reserve (Last 3)</span>
+
+              <div className="mt-3 pt-2 border-t border-white/10 text-[11px] text-gray-400">
+                {pregameReadyCount}/{pregamePlayers.length} players ready
               </div>
             </div>
           </div>

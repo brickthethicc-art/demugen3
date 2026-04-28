@@ -6,10 +6,10 @@ import {
   createBoard,
 } from '../factories.js';
 import { startTurn, deployReserve, playCard, advancePhase } from '../../src/engines/turn/index.js';
-import { TurnPhase } from '../../src/types/index.js';
+import { TurnPhase, MAX_HAND_SIZE } from '../../src/types/index.js';
 import { placeUnit } from '../../src/engines/board/index.js';
 import { createGame } from '../../src/engines/game/index.js';
-import { shouldTriggerStandbyPhase, canExitStandbyPhase } from '../../src/engines/standby/index.js';
+import { shouldTriggerStandbyPhase } from '../../src/engines/standby/index.js';
 
 describe('Standby Phase', () => {
   it('triggers when player has bench units but fewer than 3 active units', () => {
@@ -75,16 +75,16 @@ describe('Standby Phase', () => {
       return;
     }
 
-    // Simulate having 5 cards already in hand (at limit) by manually setting them
+    // Simulate having one card over the hand limit
     let currentState = state.value;
-    currentState.players[0]!.hand = { cards: [unit1, unit2, unit3, unit1, unit2] }; // 5 cards (at limit)
+    currentState.players[0]!.hand = { cards: [unit1, unit2, unit3, unit1, unit2] };
     
     // Set turnRotation to 1 to enable card drawing
     currentState = { ...currentState, turnRotation: 1 };
 
-    // Start turn should draw 1 card (making 6 total) and trigger standby phase
+    // Start turn should draw one card and trigger standby phase
     const newTurnState = startTurn(currentState);
-    expect(newTurnState.players[0]!.hand.cards.length).toBe(6); // Should have 6 cards now
+    expect(newTurnState.players[0]!.hand.cards.length).toBe(MAX_HAND_SIZE + 2);
     expect(newTurnState.turnPhase).toBe(TurnPhase.STANDBY);
   });
 
@@ -251,18 +251,19 @@ describe('Standby Phase', () => {
     const newTurnState = startTurn(currentState);
     expect(newTurnState.turnPhase).toBe(TurnPhase.STANDBY);
 
-    // Discard one card — now at limit of 5 cards.
-    // Standby stays active because summon-to-bench is available (open bench slots + unit cards in hand + LP).
+    // Discard one card — still above MAX_HAND_SIZE.
     const discardResult1 = playCard(newTurnState, 'p1', 'u1');
     expect(discardResult1.ok).toBe(true);
     if (discardResult1.ok) {
-      console.log('After first discard - Hand size:', discardResult1.value.players[0]!.hand.cards.length);
-      console.log('After first discard - Turn phase:', discardResult1.value.turnPhase);
-      // Stays in STANDBY because summon-to-bench step is now available (optional)
       expect(discardResult1.value.turnPhase).toBe(TurnPhase.STANDBY);
 
-      // Player can advance past the optional summon step
-      const advanceResult = advancePhase(discardResult1.value);
+      // Discard second card — now at MAX_HAND_SIZE and can leave standby.
+      const discardResult2 = playCard(discardResult1.value, 'p1', 'u2');
+      expect(discardResult2.ok).toBe(true);
+      if (!discardResult2.ok) return;
+      expect(discardResult2.value.players[0]!.hand.cards.length).toBe(MAX_HAND_SIZE);
+
+      const advanceResult = advancePhase(discardResult2.value);
       expect(advanceResult.ok).toBe(true);
       if (advanceResult.ok) {
         expect(advanceResult.value.turnPhase).toBe(TurnPhase.MOVE);
