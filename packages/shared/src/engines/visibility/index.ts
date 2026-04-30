@@ -1,4 +1,59 @@
-import type { GameState, UnitInstance } from '../../types/index.js';
+import type { GameState, UnitInstance, Position } from '../../types/index.js';
+import { createWallSet, wallKey } from '../../utils/walls.js';
+
+function getLineCells(start: Position, end: Position): Position[] {
+  const cells: Position[] = [];
+
+  let x0 = start.x;
+  let y0 = start.y;
+  const x1 = end.x;
+  const y1 = end.y;
+
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+
+  while (true) {
+    cells.push({ x: x0, y: y0 });
+    if (x0 === x1 && y0 === y1) break;
+
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      x0 += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+
+  return cells;
+}
+
+export function hasLineOfSight(from: Position, to: Position, walls: Position[]): boolean {
+  if (from.x === to.x && from.y === to.y) {
+    return true;
+  }
+
+  if (walls.length === 0) {
+    return true;
+  }
+
+  const wallSet = createWallSet(walls);
+  const lineCells = getLineCells(from, to);
+
+  for (let i = 1; i < lineCells.length - 1; i++) {
+    const cell = lineCells[i]!;
+    if (wallSet.has(wallKey(cell))) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 /**
  * Return ALL active units from ALL players.

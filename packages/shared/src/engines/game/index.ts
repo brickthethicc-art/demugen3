@@ -9,6 +9,7 @@ import {
 import type { Result } from '../../types/actions.js';
 import { createBoardState } from '../board/index.js';
 import { shuffleDeck, initializePlayerDeck } from '../card/index.js';
+import { generateDefaultWalls } from '../../utils/walls.js';
 
 export function createGame(players: PlayerState[]): Result<GameState> {
   if (players.length < MIN_PLAYERS) {
@@ -53,6 +54,8 @@ export function createGame(players: PlayerState[]): Result<GameState> {
     return initializedPlayer;
   });
 
+  const board = createBoardState();
+
   return {
     ok: true,
     value: {
@@ -61,7 +64,8 @@ export function createGame(players: PlayerState[]): Result<GameState> {
       turnPhase: TurnPhase.MOVE,
       currentPlayerIndex: 0,
       players: initializedPlayers,
-      board: createBoardState(),
+      board,
+      walls: generateDefaultWalls(board.width, board.height),
       turnNumber: 1,
       turnRotation: 0,
       movesUsedThisTurn: 0,

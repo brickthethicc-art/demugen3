@@ -208,6 +208,30 @@ describe('AbilityEngine', () => {
       }
     });
 
+    it('target behind wall — returns blocked error', () => {
+      const unit = createUnitInstance({
+        card: createUnit({
+          ability: createAbility({ abilityType: AbilityType.DAMAGE, cost: 0 }),
+          range: 4,
+        }),
+        hasUsedAbilityThisTurn: false,
+        position: { x: 5, y: 5 },
+        ownerId: 'p1',
+      });
+      const target = createUnitInstance({
+        card: createUnit(),
+        currentHp: 10,
+        position: { x: 8, y: 5 },
+        ownerId: 'p2',
+      });
+
+      const result = useAbility(unit, target, [{ x: 6, y: 5 }]);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('blocked by a wall');
+      }
+    });
+
     it('DAMAGE ability targeting friendly unit — returns error', () => {
       const unit = createUnitInstance({
         card: createUnit({
@@ -582,6 +606,23 @@ describe('AbilityEngine', () => {
       const targets = getAbilityTargets(caster, [caster, enemy, ally], 'p1');
       expect(targets).toHaveLength(1);
       expect(targets[0]!.unitId).toBe('e1');
+    });
+
+    it('excludes targets blocked by wall line-of-sight', () => {
+      const caster = createUnitInstance({
+        card: createUnit({ id: 'c1', ability: createAbility({ abilityType: AbilityType.DAMAGE }), range: 4 }),
+        ownerId: 'p1',
+        position: { x: 2, y: 2 },
+        hasUsedAbilityThisTurn: false,
+      });
+      const enemy = createUnitInstance({
+        card: createUnit({ id: 'e1' }),
+        ownerId: 'p2',
+        position: { x: 5, y: 2 },
+      });
+
+      const targets = getAbilityTargets(caster, [caster, enemy], 'p1', [{ x: 3, y: 2 }]);
+      expect(targets).toHaveLength(0);
     });
   });
 });

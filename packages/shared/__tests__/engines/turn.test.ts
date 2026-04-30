@@ -179,6 +179,15 @@ describe('TurnEngine', () => {
         expect(result.error).toContain('MOVE');
       }
     });
+
+    it('target wall cell — returns error', () => {
+      const state = { ...setupGameInProgress(), walls: [{ x: 0, y: 1 }] };
+      const result = processMove(state, 'p1', 'u1', { x: 0, y: 1 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('wall');
+      }
+    });
   });
 
   describe('processAbility', () => {
@@ -248,6 +257,33 @@ describe('TurnEngine', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toContain('ABILITY');
+      }
+    });
+
+    it('target blocked by wall — returns error', () => {
+      const base = { ...setupGameInProgress(), turnPhase: TurnPhase.ABILITY, walls: [{ x: 0, y: 1 }] };
+      const p2 = base.players[1]!;
+      const adjP2Units = p2.units.map((u: UnitInstance) =>
+        u.card.id === 'u4' ? { ...u, position: { x: 0, y: 2 } as Position } : u
+      );
+      const board2 = { ...base.board };
+      board2.cells = base.board.cells.map((row: any, y: number) =>
+        row.map((cell: any, x: number) => {
+          if (x === 0 && y === 29) return { ...cell, occupantId: null };
+          if (x === 0 && y === 2) return { ...cell, occupantId: 'u4' };
+          return cell;
+        })
+      );
+      const state = {
+        ...base,
+        players: [base.players[0]!, { ...p2, units: adjP2Units }],
+        board: board2,
+      };
+
+      const result = processAbility(state, 'p1', 'u1', 'u4');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('wall');
       }
     });
 
@@ -379,6 +415,43 @@ describe('TurnEngine', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toContain('ATTACK');
+      }
+    });
+
+    it('defender blocked by wall — returns error', () => {
+      const state = setupGameInProgress();
+      const p1 = state.players[0]!;
+      const p2 = state.players[1]!;
+      const updatedP1Units = p1.units.map((u: UnitInstance) =>
+        u.card.id === 'u1' ? { ...u, position: { x: 0, y: 27 } as Position } : u
+      );
+
+      let board = createBoard();
+      for (const u of updatedP1Units) {
+        if (u.position) {
+          const r = placeUnit(board, u.card.id, u.position);
+          if (r.ok) board = r.value;
+        }
+      }
+      for (const u of p2.units) {
+        if (u.position) {
+          const r = placeUnit(board, u.card.id, u.position);
+          if (r.ok) board = r.value;
+        }
+      }
+
+      const attackState = {
+        ...state,
+        turnPhase: TurnPhase.ATTACK,
+        players: [{ ...p1, units: updatedP1Units }, p2],
+        board,
+        walls: [{ x: 0, y: 28 }],
+      };
+
+      const result = processAttack(attackState, 'p1', 'u1', 'u4');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('wall');
       }
     });
 

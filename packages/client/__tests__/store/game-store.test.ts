@@ -10,6 +10,7 @@ const mockGameState: GameState = {
   currentPlayerIndex: 0,
   players: [],
   board: { width: 30, height: 30, cells: [] },
+  walls: [],
   turnNumber: 1,
   turnRotation: 0,
   movesUsedThisTurn: 0,

@@ -1,6 +1,7 @@
 import type { UnitInstance, Position } from '../../types/index.js';
 import { CombatModifierType } from '../../types/index.js';
 import { chebyshevDistance } from '../../utils/position.js';
+import { hasLineOfSight } from '../visibility/index.js';
 
 export interface CombatResult {
   attacker: UnitInstance;
@@ -27,7 +28,8 @@ export interface AttackTarget {
 export function getAttackTargets(
   attacker: UnitInstance,
   allUnits: UnitInstance[],
-  attackerOwnerId: string
+  attackerOwnerId: string,
+  walls: Position[] = []
 ): AttackTarget[] {
   if (attacker.hasAttackedThisTurn) return [];
   if (!attacker.position) return [];
@@ -42,6 +44,7 @@ export function getAttackTargets(
 
     const dist = chebyshevDistance(attacker.position, candidate.position);
     if (dist > range) continue;
+    if (!hasLineOfSight(attacker.position, candidate.position, walls)) continue;
 
     targets.push({
       unitId: candidate.card.id,

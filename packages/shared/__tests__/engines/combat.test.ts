@@ -284,5 +284,23 @@ describe('CombatEngine', () => {
       const targets = getAttackTargets(attacker, [attacker, enemy], 'p1');
       expect(targets).toHaveLength(0);
     });
+
+    it('excludes targets blocked by wall line-of-sight', () => {
+      const attacker = createUnitInstance({
+        card: { ...createUnitInstance().card, id: 'a1', range: 4 },
+        position: { x: 3, y: 3 },
+        ownerId: 'p1',
+        hasAttackedThisTurn: false,
+      });
+      const enemy = createUnitInstance({
+        card: { ...createUnitInstance().card, id: 'e1' },
+        position: { x: 6, y: 3 },
+        ownerId: 'p2',
+        currentHp: 5,
+      });
+
+      const targets = getAttackTargets(attacker, [attacker, enemy], 'p1', [{ x: 4, y: 3 }]);
+      expect(targets).toHaveLength(0);
+    });
   });
 });

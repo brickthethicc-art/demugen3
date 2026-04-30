@@ -1,5 +1,6 @@
 import type { PlayerState } from './player.js';
 import type { BoardState } from './board.js';
+import type { Position } from './board.js';
 
 export enum GamePhase {
   LOBBY = 'LOBBY',
@@ -23,6 +24,7 @@ export interface GameState {
   currentPlayerIndex: number;
   players: PlayerState[];
   board: BoardState;
+  walls: Position[];
   turnNumber: number;
   turnRotation: number;
   movesUsedThisTurn: number;

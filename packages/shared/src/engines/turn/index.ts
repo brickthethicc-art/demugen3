@@ -9,6 +9,8 @@ import { drawOne } from '../card/index.js';
 import { handleUnitDeath } from '../discard-pile/index.js';
 import { getCurrentPlayerStandbyStatus, canExitStandbyPhase } from '../standby/index.js';
 import { chebyshevDistance } from '../../utils/position.js';
+import { hasLineOfSight } from '../visibility/index.js';
+import { isWallCell } from '../../utils/walls.js';
 
 export function startTurn(state: GameState): GameState {
   const currentPlayer = state.players[state.currentPlayerIndex]!;
@@ -163,7 +165,7 @@ export function processMove(
     .reduce((sum, m) => sum + (m.value || 0), 0);
   const effectiveMovement = Math.max(0, unit.card.movement - movementDebuff);
 
-  const moveResult = boardMoveUnit(state.board, unit.position, target, effectiveMovement);
+  const moveResult = boardMoveUnit(state.board, unit.position, target, effectiveMovement, state.walls);
   if (!moveResult.ok) {
     return { ok: false, error: 'error' in moveResult ? moveResult.error : 'Failed to move unit' };
   }
@@ -233,7 +235,7 @@ export function processAbility(
 
   // All validation (range, target type, board state) is handled by the ability engine
   // This ensures single source of truth for ability rules
-  const abilityResult = useAbility(unit, targetUnit);
+  const abilityResult = useAbility(unit, targetUnit, state.walls);
   if (!abilityResult.ok) {
     return { ok: false, error: 'error' in abilityResult ? abilityResult.error : 'Failed to use ability' };
   }
@@ -365,6 +367,9 @@ export function processAttack(
   const dist = chebyshevDistance(attacker.position, defender.position);
   if (dist > attacker.card.range) {
     return { ok: false, error: `Target out of range: distance ${dist}, range ${attacker.card.range}` };
+  }
+  if (!hasLineOfSight(attacker.position, defender.position, state.walls)) {
+    return { ok: false, error: 'Target is blocked by a wall' };
   }
 
   const combatResult = resolveCombat(attacker, defender);
@@ -498,6 +503,10 @@ export function deployReserve(
   const reserveUnit = player.team.reserveUnits.find((u) => u.id === unitId);
   if (!reserveUnit) {
     return { ok: false, error: `Reserve unit ${unitId} not found` };
+  }
+
+  if (isWallCell(position, state.walls)) {
+    return { ok: false, error: 'Cannot deploy to a wall cell' };
   }
 
   const activeCount = player.units.filter((u) => 

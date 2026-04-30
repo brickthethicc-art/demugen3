@@ -65,7 +65,7 @@ export function UnitActionMenu() {
   // Pre-compute whether valid moves exist for disabling the Move button
   const hasValidMoves = useMemo(() => {
     if (!isMovePhase || hasMoved || !unitPos || !gameState || !selectedUnit) return false;
-    const moves = getValidMoves(gameState.board, unitPos, selectedUnit.card.movement);
+    const moves = getValidMoves(gameState.board, unitPos, selectedUnit.card.movement, gameState.walls);
     return moves.length > 0;
   }, [isMovePhase, hasMoved, unitPos, gameState, selectedUnit]);
 
@@ -73,7 +73,7 @@ export function UnitActionMenu() {
   const validAbilityTargets = useMemo(() => {
     if (!canUseAbility || !gameState || !selectedUnit || !playerId) return [];
     const allUnits = gameState.players.flatMap(p => p.units);
-    return getAbilityTargets(selectedUnit, allUnits, playerId);
+    return getAbilityTargets(selectedUnit, allUnits, playerId, gameState.walls);
   }, [canUseAbility, gameState, selectedUnit, playerId]);
   const hasAbilityTargets = validAbilityTargets.length > 0;
 
@@ -81,7 +81,7 @@ export function UnitActionMenu() {
   const validAttackTargets = useMemo(() => {
     if (!canAttack || !gameState || !selectedUnit || !playerId) return [];
     const allUnits = gameState.players.flatMap(p => p.units);
-    return getAttackTargets(selectedUnit, allUnits, playerId);
+    return getAttackTargets(selectedUnit, allUnits, playerId, gameState.walls);
   }, [canAttack, gameState, selectedUnit, playerId]);
   const hasAttackTargets = validAttackTargets.length > 0;
 
@@ -97,7 +97,7 @@ export function UnitActionMenu() {
     clearValidMoves();
     exitMoveMode();
 
-    const moves = getValidMoves(gameState!.board, unitPos, selectedUnit!.card.movement);
+    const moves = getValidMoves(gameState!.board, unitPos, selectedUnit!.card.movement, gameState!.walls);
     if (moves.length > 0) {
       setValidMoves(moves);
       enterMoveMode();
@@ -114,7 +114,7 @@ export function UnitActionMenu() {
 
     // Compute valid attack targets
     const allUnits = gameState.players.flatMap(p => p.units);
-    const targets = getAttackTargets(selectedUnit, allUnits, playerId);
+    const targets = getAttackTargets(selectedUnit, allUnits, playerId, gameState.walls);
 
     if (targets.length === 0) return;
 
@@ -134,7 +134,7 @@ export function UnitActionMenu() {
 
     // Compute valid ability targets
     const allUnits = gameState.players.flatMap(p => p.units);
-    const targets = getAbilityTargets(selectedUnit, allUnits, playerId);
+    const targets = getAbilityTargets(selectedUnit, allUnits, playerId, gameState.walls);
 
     // Check if this is a self-target ability
     const abilityType = selectedUnit.card.ability.abilityType;

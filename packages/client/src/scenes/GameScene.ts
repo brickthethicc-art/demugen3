@@ -19,6 +19,12 @@ const GRID_COLOR = 0xffffff;
 
 const GRID_LINE_COLOR = 0x000000;
 
+const WALL_BASE_COLOR = 0x262626;
+
+const WALL_BRICK_COLOR = 0x4b5563;
+
+const WALL_MORTAR_COLOR = 0x111827;
+
 const HIGHLIGHT_COLOR = 0x6366f1;
 
 const HOVER_HIGHLIGHT_COLOR = 0xfacc15;
@@ -430,7 +436,7 @@ export class GameScene extends Phaser.Scene {
 
 
 
-    this.drawGrid(state.board.width, state.board.height);
+    this.drawGrid(state.board.width, state.board.height, state.walls);
 
     this.drawUnits(state);
 
@@ -450,11 +456,13 @@ export class GameScene extends Phaser.Scene {
 
 
 
-  private drawGrid(width: number, height: number) {
+  private drawGrid(width: number, height: number, walls: Position[]) {
 
     if (!this.cellGraphics) return;
 
     this.cellGraphics.clear();
+
+    const wallSet = new Set(walls.map((wall) => `${wall.x},${wall.y}`));
 
 
 
@@ -468,9 +476,23 @@ export class GameScene extends Phaser.Scene {
 
 
 
-        this.cellGraphics.fillStyle(GRID_COLOR, 0.9);
+        const isWall = wallSet.has(`${x},${y}`);
+        if (isWall) {
+          this.cellGraphics.fillStyle(WALL_BASE_COLOR, 1);
+          this.cellGraphics.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
 
-        this.cellGraphics.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+          this.cellGraphics.fillStyle(WALL_BRICK_COLOR, 0.95);
+          this.cellGraphics.fillRect(px + 3, py + 4, CELL_SIZE - 6, 7);
+          this.cellGraphics.fillRect(px + 2, py + 14, CELL_SIZE - 8, 7);
+          this.cellGraphics.fillRect(px + 5, py + 23, CELL_SIZE - 7, 6);
+
+          this.cellGraphics.lineStyle(1, WALL_MORTAR_COLOR, 0.9);
+          this.cellGraphics.strokeLineShape(new Phaser.Geom.Line(px + 3, py + 12, px + CELL_SIZE - 3, py + 12));
+          this.cellGraphics.strokeLineShape(new Phaser.Geom.Line(px + 3, py + 22, px + CELL_SIZE - 3, py + 22));
+        } else {
+          this.cellGraphics.fillStyle(GRID_COLOR, 0.9);
+          this.cellGraphics.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+        }
 
 
 
@@ -1848,7 +1870,8 @@ export class GameScene extends Phaser.Scene {
     for (let y = 0; y < gameState.board.height; y++) {
       for (let x = 0; x < gameState.board.width; x++) {
         const cell = gameState.board.cells[y]?.[x];
-        if (cell && cell.occupantId === null) {
+        const isWall = gameState.walls.some((wall) => wall.x === x && wall.y === y);
+        if (cell && cell.occupantId === null && !isWall) {
           const px = x * CELL_SIZE;
           const py = y * CELL_SIZE;
 
@@ -2018,7 +2041,8 @@ export class GameScene extends Phaser.Scene {
       // Check if the clicked cell is empty and within bounds
       if (pos.x >= 0 && pos.y >= 0 && pos.x < gameState.board.width && pos.y < gameState.board.height) {
         const cell = gameState.board.cells[pos.y]?.[pos.x];
-        if (cell && cell.occupantId === null) {
+        const isWall = gameState.walls.some((wall) => wall.x === pos.x && wall.y === pos.y);
+        if (cell && cell.occupantId === null && !isWall) {
           // Deploy the bench unit
           import('../network/socket-client.js').then(({ sendIntent }) => {
             sendIntent({

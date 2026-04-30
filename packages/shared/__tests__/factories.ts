@@ -134,6 +134,7 @@ export function createGameState(overrides?: Partial<GameState>): GameState {
     currentPlayerIndex: 0,
     players: [createPlayer(), createPlayer()],
     board: createBoard(),
+    walls: [],
     turnNumber: 1,
     turnRotation: 0,
     movesUsedThisTurn: 0,

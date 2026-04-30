@@ -157,7 +157,21 @@ describe('BoardEngine', () => {
       const result = moveUnit(board, from, to, 2);
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toContain('range');
+        expect(result.error).toContain('reachable');
+      }
+    });
+
+    it('target is a wall cell — returns error', () => {
+      let board = createBoardState();
+      const from: Position = { x: 2, y: 2 };
+      const to: Position = { x: 3, y: 2 };
+      const placed = placeUnit(board, 'unit-1', from);
+      if (placed.ok) board = placed.value;
+
+      const result = moveUnit(board, from, to, 2, [{ x: 3, y: 2 }]);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain('wall');
       }
     });
 
@@ -235,6 +249,23 @@ describe('BoardEngine', () => {
         expect(m.x).toBeLessThan(DEFAULT_BOARD_WIDTH);
         expect(m.y).toBeLessThan(DEFAULT_BOARD_HEIGHT);
       });
+    });
+
+    it('excludes wall cells and routes around them', () => {
+      let board = createBoardState();
+      const pos: Position = { x: 4, y: 4 };
+      const placed = placeUnit(board, 'unit-1', pos);
+      if (placed.ok) board = placed.value;
+
+      const walls: Position[] = [
+        { x: 5, y: 4 },
+        { x: 5, y: 5 },
+      ];
+
+      const moves = getValidMoves(board, pos, 3, walls);
+      expect(moves.some((m) => m.x === 5 && m.y === 4)).toBe(false);
+      expect(moves.some((m) => m.x === 5 && m.y === 5)).toBe(false);
+      expect(moves.some((m) => m.x === 6 && m.y === 4)).toBe(true);
     });
   });
 

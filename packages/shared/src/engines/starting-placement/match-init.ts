@@ -4,6 +4,7 @@ import type { Result } from '../../types/actions.js';
 import { placeUnit } from '../board/index.js';
 import { assignPlayerColors } from '../player-color/index.js';
 import { getSpawnPositions, getReservePositions } from './index.js';
+import { isWallCell } from '../../utils/walls.js';
 
 /**
  * Initialize match units for all players.
@@ -66,6 +67,10 @@ export function initializeMatchUnits(gameState: GameState): Result<GameState> {
     for (let i = 0; i < player.team.activeUnits.length; i++) {
       const card = player.team.activeUnits[i]!;
       const position = startingPositions[i]!;
+
+      if (isWallCell(position, gameState.walls)) {
+        return { ok: false, error: `Spawn position (${position.x},${position.y}) is blocked by a wall` };
+      }
 
       // Create unique unit instance ID to avoid collisions between players
       const unitInstanceId = `${player.id}-${card.id}`;

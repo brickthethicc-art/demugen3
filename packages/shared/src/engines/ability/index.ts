@@ -2,6 +2,7 @@ import type { UnitInstance, Position } from '../../types/index.js';
 import { AbilityType, CombatModifierType } from '../../types/index.js';
 import type { Result } from '../../types/actions.js';
 import { chebyshevDistance } from '../../utils/position.js';
+import { hasLineOfSight } from '../visibility/index.js';
 
 export interface AbilityResult {
   unit: UnitInstance;
@@ -67,7 +68,8 @@ function isDamageAndModifierAbility(description: string): boolean {
 
 export function useAbility(
   unit: UnitInstance,
-  target: UnitInstance | null
+  target: UnitInstance | null,
+  walls: Position[] = []
 ): Result<AbilityResult> {
   // STEP 1: Ability is triggered
   if (unit.hasUsedAbilityThisTurn) {
@@ -111,6 +113,9 @@ export function useAbility(
     const maxRange = isAdjacent ? 1 : unit.card.range;
     if (dist > maxRange) {
       return { ok: false, error: isAdjacent ? 'Target must be adjacent' : 'Target is out of range' };
+    }
+    if (!hasLineOfSight(unit.position, target.position, walls)) {
+      return { ok: false, error: 'Target is blocked by a wall' };
     }
     // Validate target type (enemy vs ally) based on ability type
     const isFriendly = target.ownerId === unit.ownerId;
@@ -275,7 +280,8 @@ export interface AbilityTarget {
 export function getAbilityTargets(
   unit: UnitInstance,
   allUnits: UnitInstance[],
-  ownerId: string
+  ownerId: string,
+  walls: Position[] = []
 ): AbilityTarget[] {
   if (!unit.position) return [];
   if (unit.hasUsedAbilityThisTurn) return [];
@@ -300,6 +306,7 @@ export function getAbilityTargets(
 
     const dist = chebyshevDistance(unit.position, candidate.position);
     if (dist > maxRange) continue;
+    if (!hasLineOfSight(unit.position, candidate.position, walls)) continue;
 
     const isFriendly = candidate.ownerId === ownerId;
 

@@ -2,6 +2,7 @@ import type { BoardState, GridCell, Position } from '../../types/index.js';
 import { DEFAULT_BOARD_WIDTH, DEFAULT_BOARD_HEIGHT } from '../../types/index.js';
 import type { Result } from '../../types/actions.js';
 import { chebyshevDistance } from '../../utils/position.js';
+import { createWallSet, wallKey } from '../../utils/walls.js';
 
 export function createBoardState(
   width: number = DEFAULT_BOARD_WIDTH,
@@ -64,7 +65,8 @@ export function moveUnit(
   board: BoardState,
   from: Position,
   to: Position,
-  movementRange: number
+  movementRange: number,
+  walls: Position[] = []
 ): Result<BoardState> {
   if (!isInBounds(board, to)) {
     return { ok: false, error: `Target (${to.x},${to.y}) is out of bounds` };
@@ -83,11 +85,18 @@ export function moveUnit(
     return { ok: false, error: `Target (${to.x},${to.y}) is already occupied` };
   }
 
-  const dist = chebyshevDistance(from, to);
-  if (dist > movementRange) {
+  const wallSet = createWallSet(walls);
+  if (wallSet.has(wallKey(to))) {
+    return { ok: false, error: `Target (${to.x},${to.y}) is blocked by a wall` };
+  }
+
+  const validMoves = getValidMoves(board, from, movementRange, walls);
+  const canReachTarget = validMoves.some((move) => move.x === to.x && move.y === to.y);
+  if (!canReachTarget) {
+    const dist = chebyshevDistance(from, to);
     return {
       ok: false,
-      error: `Target is out of range: distance ${dist}, movement ${movementRange}`,
+      error: `Target is not reachable: distance ${dist}, movement ${movementRange}`,
     };
   }
 
@@ -98,21 +107,52 @@ export function moveUnit(
   return { ok: true, value: { ...board, cells: newCells } };
 }
 
-export function getValidMoves(board: BoardState, pos: Position, movementRange: number): Position[] {
-  const moves: Position[] = [];
-  for (let dy = -movementRange; dy <= movementRange; dy++) {
-    for (let dx = -movementRange; dx <= movementRange; dx++) {
-      if (dx === 0 && dy === 0) continue;
-      const target: Position = { x: pos.x + dx, y: pos.y + dy };
-      if (!isInBounds(board, target)) continue;
-      if (chebyshevDistance(pos, target) > movementRange) continue;
+export function getValidMoves(
+  board: BoardState,
+  pos: Position,
+  movementRange: number,
+  walls: Position[] = []
+): Position[] {
+  if (movementRange <= 0) return [];
 
-      const cell = board.cells[target.y]?.[target.x];
-      if (cell && cell.occupantId === null) {
-        moves.push(target);
+  const wallSet = createWallSet(walls);
+  const startKey = wallKey(pos);
+  const queue: Array<{ pos: Position; steps: number }> = [{ pos, steps: 0 }];
+  const visited = new Set<string>([startKey]);
+  const moves: Position[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+
+    if (current.steps >= movementRange) {
+      continue;
+    }
+
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+
+        const next: Position = { x: current.pos.x + dx, y: current.pos.y + dy };
+        if (!isInBounds(board, next)) continue;
+
+        const nextKey = wallKey(next);
+        if (visited.has(nextKey)) continue;
+        if (wallSet.has(nextKey)) continue;
+
+        const cell = board.cells[next.y]?.[next.x];
+        if (!cell) continue;
+
+        visited.add(nextKey);
+
+        if (cell.occupantId === null) {
+          moves.push(next);
+          queue.push({ pos: next, steps: current.steps + 1 });
+        }
       }
     }
   }
+
   return moves;
 }
 
