@@ -3,6 +3,21 @@ import { TurnPhase, CardType, GamePhase } from '@mugen/shared';
 
 export type GameLogFn = (message: string) => void;
 
+const ACTIONABLE_LOG_PATTERNS: RegExp[] = [
+  /HAS ADVANCED \d+ SPACE(S)?$/,
+  /HAS ADVANCED FROM THE BENCH TO THE FIELD$/,
+  /ABILITY \[[^\]]+\] HAS ACTIVATED:/,
+  /THE SORCERY SPELL '[^']+' HAS BEEN ACTIVATED:/,
+  /HAS ATTACKED [A-Z0-9\- ']+ FOR \d+ DAMAGE$/,
+  /HAS BEEN SUMMONED TO THE BENCH$/,
+  /ENDED (STANDBY PHASE|MOVEMENT PHASE|ABILITY PHASE|ATTACK PHASE)$/,
+  /HAS ENDED THEIR TURN$/,
+];
+
+export function isCommittedPlayerActionLog(message: string): boolean {
+  return ACTIONABLE_LOG_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 function playerLabel(state: GameState, playerId: string): string {
   const player = state.players.find(p => p.id === playerId);
   return player ? `[${player.name.toUpperCase()}]` : '[UNKNOWN PLAYER]';

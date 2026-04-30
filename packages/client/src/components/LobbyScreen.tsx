@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useGameStore } from '../store/game-store.js';
 import * as network from '../network/socket-client.js';
-import { Users, Play, Check, Plus, LogIn } from 'lucide-react';
+import { Users, Play, Check, Plus, LogIn, ArrowLeft } from 'lucide-react';
 
 export function LobbyScreen() {
   const [name, setName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [mode, setMode] = useState<'menu' | 'create' | 'join'>('menu');
 
+  const setScreen = useGameStore((s) => s.setScreen);
+  const setLobbyCode = useGameStore((s) => s.setLobbyCode);
+  const setLobbyPlayers = useGameStore((s) => s.setLobbyPlayers);
   const playerId = useGameStore((s) => s.playerId);
   const lobbyCode = useGameStore((s) => s.lobbyCode);
   const lobbyPlayers = useGameStore((s) => s.lobbyPlayers);
@@ -108,35 +111,42 @@ export function LobbyScreen() {
     network.startGame();
   };
 
+  const handleLeaveLobby = () => {
+    network.disconnect();
+    setLobbyCode(null);
+    setLobbyPlayers([]);
+    setScreen('main-menu');
+  };
+
   if (!lobbyCode) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-mugen-bg">
-        <div className="bg-mugen-surface rounded-2xl p-8 w-full max-w-md shadow-2xl border border-white/5">
-          <h1 className="text-4xl font-bold text-center mb-2 bg-gradient-to-r from-mugen-accent to-mugen-mana bg-clip-text text-transparent">
+      <div className="min-h-[100dvh] bg-mugen-bg px-3 py-4 sm:min-h-screen sm:flex sm:items-center sm:justify-center">
+        <div className="w-full max-w-md rounded-xl border border-white/5 bg-mugen-surface p-4 shadow-2xl sm:rounded-2xl sm:p-8">
+          <h1 className="mb-2 text-center text-3xl font-bold bg-gradient-to-r from-mugen-accent to-mugen-mana bg-clip-text text-transparent sm:text-4xl">
             MUGEN
           </h1>
-          <p className="text-gray-400 text-center mb-8 text-sm">Strategy Card Game</p>
+          <p className="mb-6 text-center text-sm text-gray-400 sm:mb-8">Strategy Card Game</p>
 
           {mode === 'menu' && (
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               <input
                 type="text"
                 placeholder="Your name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-3 bg-mugen-bg border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-mugen-accent transition"
+                className="w-full rounded-lg border border-white/10 bg-mugen-bg px-4 py-3 text-base text-white placeholder-gray-500 transition focus:border-mugen-accent focus:outline-none"
               />
               <button
                 onClick={() => setMode('create')}
                 disabled={!name.trim()}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-mugen-accent hover:bg-mugen-accent/80 disabled:opacity-40 rounded-lg font-medium transition"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-mugen-accent px-4 py-3 font-medium transition hover:bg-mugen-accent/80 disabled:opacity-40"
               >
                 <Plus size={18} /> Create Game
               </button>
               <button
                 onClick={() => setMode('join')}
                 disabled={!name.trim()}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-mugen-surface border border-white/10 hover:border-mugen-accent/50 disabled:opacity-40 rounded-lg font-medium transition"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-mugen-surface px-4 py-3 font-medium transition hover:border-mugen-accent/50 disabled:opacity-40"
               >
                 <LogIn size={18} /> Join Game
               </button>
@@ -144,38 +154,38 @@ export function LobbyScreen() {
           )}
 
           {mode === 'create' && (
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               <p className="text-gray-300 text-sm">Creating as <span className="text-white font-semibold">{name}</span></p>
               <button
                 onClick={handleCreate}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-mugen-accent hover:bg-mugen-accent/80 rounded-lg font-medium transition"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-mugen-accent px-4 py-3 font-medium transition hover:bg-mugen-accent/80"
               >
                 <Plus size={18} /> Create Lobby
               </button>
-              <button onClick={() => setMode('menu')} className="w-full text-gray-400 hover:text-white text-sm transition">
+              <button onClick={() => setMode('menu')} className="w-full rounded-md py-2 text-sm text-gray-400 transition hover:text-white">
                 ← Back
               </button>
             </div>
           )}
 
           {mode === 'join' && (
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               <input
                 type="text"
                 placeholder="Lobby code"
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 maxLength={6}
-                className="w-full px-4 py-3 bg-mugen-bg border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-mugen-accent transition text-center tracking-widest text-lg font-mono"
+                className="w-full rounded-lg border border-white/10 bg-mugen-bg px-4 py-3 text-center font-mono text-lg tracking-widest text-white placeholder-gray-500 transition focus:border-mugen-accent focus:outline-none"
               />
               <button
                 onClick={handleJoin}
                 disabled={joinCode.length < 4}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-mugen-accent hover:bg-mugen-accent/80 disabled:opacity-40 rounded-lg font-medium transition"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-mugen-accent px-4 py-3 font-medium transition hover:bg-mugen-accent/80 disabled:opacity-40"
               >
                 <LogIn size={18} /> Join
               </button>
-              <button onClick={() => setMode('menu')} className="w-full text-gray-400 hover:text-white text-sm transition">
+              <button onClick={() => setMode('menu')} className="w-full rounded-md py-2 text-sm text-gray-400 transition hover:text-white">
                 ← Back
               </button>
             </div>
@@ -190,31 +200,44 @@ export function LobbyScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-mugen-bg">
-      <div className="bg-mugen-surface rounded-2xl p-8 w-full max-w-md shadow-2xl border border-white/5">
-        <h2 className="text-2xl font-bold mb-1">Lobby</h2>
-        <p className="text-gray-400 text-sm mb-6 font-mono">Code: <span className="text-mugen-gold">{lobbyCode}</span></p>
-
-        <div className="space-y-3 mb-6">
-          <div className="flex items-center gap-2 text-gray-400 text-sm">
-            <Users size={16} /> Players ({lobbyPlayers.length}/4)
+    <div className="min-h-[100dvh] bg-mugen-bg px-3 py-4 sm:min-h-screen sm:flex sm:items-center sm:justify-center">
+      <div className="w-full max-w-md rounded-xl border border-white/5 bg-mugen-surface p-4 shadow-2xl sm:rounded-2xl sm:p-8">
+        <div className="mb-4 flex items-center justify-between gap-2 sm:mb-6">
+          <div>
+            <h2 className="text-xl font-bold sm:text-2xl">Lobby</h2>
+            <p className="text-xs text-gray-400 font-mono sm:text-sm">Code: <span className="text-mugen-gold">{lobbyCode}</span></p>
           </div>
-          {lobbyPlayers.map((p) => (
-            <div key={p.id} className="flex items-center justify-between bg-mugen-bg rounded-lg px-4 py-3 border border-white/5">
-              <span className="font-medium">{p.name}</span>
-              {p.isReady ? (
-                <span className="flex items-center gap-1 text-mugen-success text-sm"><Check size={14} /> Ready</span>
-              ) : (
-                <span className="text-gray-500 text-sm">Waiting...</span>
-              )}
-            </div>
-          ))}
+          <button
+            type="button"
+            onClick={handleLeaveLobby}
+            className="inline-flex min-h-11 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-3 text-xs font-semibold text-gray-200 transition hover:border-mugen-danger/60 hover:text-white"
+          >
+            <ArrowLeft size={14} /> Leave
+          </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="mb-4 space-y-2.5 sm:mb-6 sm:space-y-3">
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <Users size={16} /> Players ({lobbyPlayers.length}/4)
+          </div>
+          <div className="max-h-[38dvh] space-y-2 overflow-y-auto pr-1 sm:max-h-[42dvh]">
+            {lobbyPlayers.map((p) => (
+              <div key={p.id} className="flex min-h-11 items-center justify-between rounded-lg border border-white/5 bg-mugen-bg px-3 py-2.5 sm:px-4 sm:py-3">
+                <span className="font-medium text-sm sm:text-base">{p.name}</span>
+                {p.isReady ? (
+                  <span className="flex items-center gap-1 text-mugen-success text-xs sm:text-sm"><Check size={14} /> Ready</span>
+                ) : (
+                  <span className="text-gray-500 text-xs sm:text-sm">Waiting...</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2.5 sm:space-y-3">
           <button
             onClick={handleReady}
-            className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition ${
+            className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-medium transition ${
               myPlayer?.isReady
                 ? 'bg-mugen-success/20 border border-mugen-success text-mugen-success'
                 : 'bg-mugen-accent hover:bg-mugen-accent/80'
@@ -227,7 +250,7 @@ export function LobbyScreen() {
             <button
               onClick={handleStart}
               disabled={!allReady}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-mugen-gold hover:bg-mugen-gold/80 disabled:opacity-40 text-black rounded-lg font-bold transition"
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-mugen-gold px-4 py-3 font-bold text-black transition hover:bg-mugen-gold/80 disabled:opacity-40"
             >
               <Play size={18} /> Start Game
             </button>
