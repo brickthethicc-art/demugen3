@@ -29,6 +29,48 @@ const ATTACK_HIGHLIGHT_COLOR = 0xef4444;
 
 const DEPLOYMENT_HIGHLIGHT_COLOR = 0x22c55e;
 
+const DAMAGE_POTION_COLOR = 0xef4444;
+
+const HEAL_POTION_COLOR = 0x22c55e;
+
+const BLOOD_MAIN_COLOR = 0x8b0000;
+
+const BLOOD_DROPLET_COLOR = 0xa52a2a;
+
+const BLOOD_STAIN_COLOR = 0x660000;
+
+const ATTACKER_SURVIVE_FLASH_DURATION_MS = 420;
+
+const ATTACKER_DIES_FLASH_DURATION_MS = 840;
+
+const DEFENDER_FLASH_DURATION_MS = 840;
+
+const DEATH_FLASH_LONG_DURATION_MS = 840;
+
+const DEATH_EXPLOSION_DELAY_MS = 140;
+
+const DEATH_UNIT_FADE_DURATION_MS = 440;
+
+const DEATH_PARTICLE_CLEANUP_MS = 1200;
+
+const BLOOD_SPLATTER_CLEANUP_MS = 1800;
+
+const BLOOD_DROPLET_CLEANUP_MS = 1400;
+
+const DEATH_EXPLOSION_CORE_DURATION_MS = 360;
+
+const DEATH_SHOCKWAVE_DURATION_MS = 760;
+
+const SOUL_ORB_HOVER_DURATION_MS = 500;
+
+const SOUL_ORB_FLIGHT_DURATION_MS = 1200;
+
+const DISCARD_PILE_FLASH_DURATION_MS = 680;
+
+const ATTACK_SLASH_DELAY_MS = 140;
+
+const ATTACK_DAMAGE_NUMBER_DELAY_MS = 260;
+
 
 
 // Map player colors to Phaser color numbers
@@ -62,6 +104,11 @@ type UnitTweenBundle = {
   death?: Phaser.Tweens.Tween;
 };
 
+type ViewportPoint = {
+  x: number;
+  y: number;
+};
+
 type PendingAttackFeedback = {
   attackerInstanceId: string;
   defenderInstanceId: string;
@@ -72,6 +119,7 @@ type PendingAttackFeedback = {
 type PendingAbilityDamageFeedback = {
   targetInstanceId: string;
   targetPos: Position;
+  attackerPos?: Position;
   damage: number;
   targetDied: boolean;
 };
@@ -79,6 +127,7 @@ type PendingAbilityDamageFeedback = {
 type PendingAbilityDeathFeedback = {
   damage: number;
   targetPos: Position;
+  attackerPos?: Position;
 };
 
 type HealingEffectEntry = {
@@ -128,7 +177,11 @@ export class GameScene extends Phaser.Scene {
 
   private pendingAbilityDeathFeedback: Map<string, PendingAbilityDeathFeedback> = new Map();
 
+  private pendingHealingSplashSources: Map<string, Position> = new Map();
+
   private activeHealingEffects: Map<string, Set<HealingEffectEntry>> = new Map();
+
+  private activeOverlayElements: Set<HTMLElement> = new Set();
 
   private readonly particleTextureKey = 'unit-effect-particle';
 
@@ -165,6 +218,10 @@ export class GameScene extends Phaser.Scene {
     this.sorceryFirstTargetGraphics.setDepth(101);
 
     this.ensureParticleTexture();
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.cleanupOverlayElements();
+    });
 
 
 
@@ -309,7 +366,7 @@ export class GameScene extends Phaser.Scene {
 
     this.events.on('pointerout', () => {
 
-      useGameStore.getState().clearHoveredCard();
+      // Keep the last hovered card visible until a new hover occurs.
 
     });
 
@@ -473,14 +530,18 @@ export class GameScene extends Phaser.Scene {
         if (container.getData('animationState') !== 'dying') {
           const abilityDeathFeedback = this.pendingAbilityDeathFeedback.get(unitInstanceId);
           if (abilityDeathFeedback) {
-            this.flashUnit(unitInstanceId, abilityDeathFeedback.damage);
-            this.time.delayedCall(380, () => {
-              this.emitAbilityLightningBolt(abilityDeathFeedback.targetPos);
-            });
-            this.playDeathAnimation(unitInstanceId, container, 420, true, deathExplosionColor);
+            this.emitSplashPotion(
+              abilityDeathFeedback.attackerPos,
+              abilityDeathFeedback.targetPos,
+              DAMAGE_POTION_COLOR,
+              () => {
+                this.flashUnit(unitInstanceId, abilityDeathFeedback.damage, DEATH_FLASH_LONG_DURATION_MS);
+              },
+            );
+            this.playDeathAnimation(unitInstanceId, container, targetX, targetY, DEATH_FLASH_LONG_DURATION_MS, true, deathExplosionColor);
             this.pendingAbilityDeathFeedback.delete(unitInstanceId);
           } else {
-            this.playDeathAnimation(unitInstanceId, container, 70, false, deathExplosionColor);
+            this.playDeathAnimation(unitInstanceId, container, targetX, targetY, DEATH_EXPLOSION_DELAY_MS, false, deathExplosionColor);
           }
         }
       } else if (hasMoved) {
@@ -489,8 +550,8 @@ export class GameScene extends Phaser.Scene {
         container.setPosition(targetX, targetY);
       }
 
-      if (healedAmount > 0 && container.getData('animationState') !== 'dying') {
-        this.showHealingEffect(unitInstanceId, container, healedAmount, unitColor);
+      if (healedAmount > 0 && container.getData('animationState') !== 'dying' && unit.position) {
+        this.showHealingEffect(unitInstanceId, container, healedAmount, unitColor, unit.position);
       }
 
       this.updateUnitSprite(container, unit, unitColor);
@@ -508,19 +569,25 @@ export class GameScene extends Phaser.Scene {
         : previousUnit?.color
           ? getPlayerColor(previousUnit.color)
           : undefined;
+      const deathEffectPos = boardUnit?.position ?? previousUnit?.position;
+      const deathEffectCoords = deathEffectPos ? this.gridToWorld(deathEffectPos) : { x: container.x, y: container.y };
       const shouldPlayDeath = !boardUnit || boardUnit.currentHp <= 0 || !boardUnit.position;
       if (shouldPlayDeath) {
         if (container.getData('animationState') !== 'dying') {
           const abilityDeathFeedback = this.pendingAbilityDeathFeedback.get(id);
           if (abilityDeathFeedback) {
-            this.flashUnit(id, abilityDeathFeedback.damage);
-            this.time.delayedCall(380, () => {
-              this.emitAbilityLightningBolt(abilityDeathFeedback.targetPos);
-            });
-            this.playDeathAnimation(id, container, 420, true, deathExplosionColor);
+            this.emitSplashPotion(
+              abilityDeathFeedback.attackerPos,
+              abilityDeathFeedback.targetPos,
+              DAMAGE_POTION_COLOR,
+              () => {
+                this.flashUnit(id, abilityDeathFeedback.damage, DEATH_FLASH_LONG_DURATION_MS);
+              },
+            );
+            this.playDeathAnimation(id, container, deathEffectCoords.x, deathEffectCoords.y, DEATH_FLASH_LONG_DURATION_MS, true, deathExplosionColor);
             this.pendingAbilityDeathFeedback.delete(id);
           } else {
-            this.playDeathAnimation(id, container, 70, false, deathExplosionColor);
+            this.playDeathAnimation(id, container, deathEffectCoords.x, deathEffectCoords.y, DEATH_EXPLOSION_DELAY_MS, false, deathExplosionColor);
           }
         }
       } else {
@@ -592,7 +659,7 @@ export class GameScene extends Phaser.Scene {
 
     const distance = Math.abs(from.x - to.x) + Math.abs(from.y - to.y);
     if (distance >= 2) {
-      this.emitMovementTrail(container.x, container.y, unitColor);
+      this.emitMovementTrail(targetX, targetY, unitColor);
     }
 
     tweens.scale = this.tweens.add({
@@ -665,7 +732,9 @@ export class GameScene extends Phaser.Scene {
   private playDeathAnimation(
     unitId: string,
     container: Phaser.GameObjects.Container,
-    explosionDelayMs = 70,
+    targetX: number,
+    targetY: number,
+    explosionDelayMs = DEATH_EXPLOSION_DELAY_MS,
     preserveFlash = false,
     unitColor?: number,
   ) {
@@ -688,19 +757,184 @@ export class GameScene extends Phaser.Scene {
       square.setFillStyle(0xffffff, 1);
     }
 
+    this.emitBloodSplatter(targetX, targetY);
+
     this.time.delayedCall(explosionDelayMs, () => {
-      this.emitDeathExplosion(container.x, container.y, unitColor);
+      this.emitDeathExplosion(targetX, targetY, unitColor);
+
+      let fadeComplete = false;
+      let soulComplete = false;
+      const finalizeDeathCleanup = () => {
+        if (!fadeComplete || !soulComplete) return;
+        this.cleanupUnitContainer(unitId, container);
+      };
+
+      this.playSoulOrbAnimation(targetX, targetY, () => {
+        soulComplete = true;
+        finalizeDeathCleanup();
+      });
 
       tweens.death = this.tweens.add({
         targets: container,
         alpha: 0,
-        duration: 220,
+        duration: DEATH_UNIT_FADE_DURATION_MS,
         ease: 'Quad.Out',
         onComplete: () => {
-          this.cleanupUnitContainer(unitId, container);
+          fadeComplete = true;
+          finalizeDeathCleanup();
         },
       });
     });
+  }
+
+  private cleanupOverlayElements() {
+    this.activeOverlayElements.forEach((element) => {
+      element.remove();
+    });
+    this.activeOverlayElements.clear();
+  }
+
+  private registerOverlayElement(element: HTMLElement) {
+    this.activeOverlayElements.add(element);
+  }
+
+  private removeOverlayElement(element: HTMLElement) {
+    element.remove();
+    this.activeOverlayElements.delete(element);
+  }
+
+  private worldToViewport(worldX: number, worldY: number): ViewportPoint {
+    const camera = this.cameras.main;
+    const canvasRect = this.game.canvas.getBoundingClientRect();
+    const xScale = canvasRect.width / camera.width;
+    const yScale = canvasRect.height / camera.height;
+    return {
+      x: canvasRect.left + (worldX - camera.worldView.x) * xScale,
+      y: canvasRect.top + (worldY - camera.worldView.y) * yScale,
+    };
+  }
+
+  private playSoulOrbAnimation(startWorldX: number, startWorldY: number, onComplete: () => void) {
+    const discardPileElement = document.querySelector<HTMLElement>('[data-discard-pile="desktop"]');
+    if (!discardPileElement) {
+      onComplete();
+      return;
+    }
+
+    const startPoint = this.worldToViewport(startWorldX, startWorldY);
+    const discardRect = discardPileElement.getBoundingClientRect();
+    const endPoint = {
+      x: discardRect.left + discardRect.width / 2,
+      y: discardRect.top + discardRect.height / 2,
+    };
+    const controlPoint = {
+      x: startPoint.x + (endPoint.x - startPoint.x) * 0.55,
+      y: Math.min(startPoint.y, endPoint.y) - 72,
+    };
+
+    const orb = document.createElement('div');
+    orb.style.position = 'fixed';
+    orb.style.left = `${startPoint.x}px`;
+    orb.style.top = `${startPoint.y}px`;
+    orb.style.width = '30px';
+    orb.style.height = '30px';
+    orb.style.borderRadius = '9999px';
+    orb.style.pointerEvents = 'none';
+    orb.style.zIndex = '1400';
+    orb.style.opacity = '1';
+    orb.style.transform = 'translate(-50%, -50%)';
+    orb.style.background = 'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(226,232,255,0.95) 44%, rgba(209,225,255,0.55) 72%, rgba(209,225,255,0) 100%)';
+    orb.style.boxShadow = '0 0 20px rgba(255,255,255,0.9), 0 0 34px rgba(210,224,255,0.75), 0 0 52px rgba(210,224,255,0.35)';
+    document.body.appendChild(orb);
+    this.registerOverlayElement(orb);
+
+    const hoverAnimation = orb.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+        { transform: 'translate(-50%, calc(-50% - 10px)) scale(1.08)', opacity: 1 },
+        { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+      ],
+      {
+        duration: SOUL_ORB_HOVER_DURATION_MS,
+        easing: 'ease-in-out',
+      },
+    );
+
+    hoverAnimation.onfinish = () => {
+      const flightAnimation = orb.animate(
+        [
+          { left: `${startPoint.x}px`, top: `${startPoint.y}px`, opacity: 1, transform: 'translate(-50%, -50%) scale(1)' },
+          { left: `${controlPoint.x}px`, top: `${controlPoint.y}px`, opacity: 1, offset: 0.55, transform: 'translate(-50%, -50%) scale(1.12)' },
+          { left: `${endPoint.x}px`, top: `${endPoint.y}px`, opacity: 0.94, transform: 'translate(-50%, -50%) scale(0.7)' },
+        ],
+        {
+          duration: SOUL_ORB_FLIGHT_DURATION_MS,
+          easing: 'cubic-bezier(0.2, 0.75, 0.2, 1)',
+          fill: 'forwards',
+        },
+      );
+
+      flightAnimation.onfinish = () => {
+        this.triggerDiscardPileFlash(discardPileElement);
+        this.removeOverlayElement(orb);
+        onComplete();
+      };
+
+      flightAnimation.oncancel = () => {
+        this.removeOverlayElement(orb);
+        onComplete();
+      };
+    };
+
+    hoverAnimation.oncancel = () => {
+      this.removeOverlayElement(orb);
+      onComplete();
+    };
+  }
+
+  private triggerDiscardPileFlash(discardPileElement: HTMLElement) {
+    const discardRect = discardPileElement.getBoundingClientRect();
+    const flash = document.createElement('div');
+    flash.style.position = 'fixed';
+    flash.style.left = `${discardRect.left}px`;
+    flash.style.top = `${discardRect.top}px`;
+    flash.style.width = `${discardRect.width}px`;
+    flash.style.height = `${discardRect.height}px`;
+    flash.style.borderRadius = '10px';
+    flash.style.pointerEvents = 'none';
+    flash.style.zIndex = '1399';
+    flash.style.opacity = '0';
+    flash.style.background = 'radial-gradient(circle at center, rgba(255,255,255,0.98) 0%, rgba(244,248,255,0.94) 52%, rgba(231,239,255,0.58) 100%)';
+    flash.style.boxShadow = '0 0 36px rgba(255,255,255,0.82), 0 0 62px rgba(224,235,255,0.58)';
+    document.body.appendChild(flash);
+    this.registerOverlayElement(flash);
+
+    window.dispatchEvent(new CustomEvent('discard-pile-flash', {
+      detail: {
+        startedAt: performance.now(),
+        durationMs: DISCARD_PILE_FLASH_DURATION_MS,
+      },
+    }));
+
+    const flashAnimation = flash.animate(
+      [
+        { opacity: 0 },
+        { opacity: 1, offset: 0.28 },
+        { opacity: 0 },
+      ],
+      {
+        duration: DISCARD_PILE_FLASH_DURATION_MS,
+        easing: 'ease-out',
+      },
+    );
+
+    flashAnimation.onfinish = () => {
+      this.removeOverlayElement(flash);
+    };
+
+    flashAnimation.oncancel = () => {
+      this.removeOverlayElement(flash);
+    };
   }
 
   private cleanupUnitContainer(unitId: string, container: Phaser.GameObjects.Container) {
@@ -746,7 +980,14 @@ export class GameScene extends Phaser.Scene {
     graphics.destroy();
   }
 
-  private emitParticleBurst(x: number, y: number, color: number, quantity: number, includeWhite = false) {
+  private emitParticleBurst(
+    x: number,
+    y: number,
+    color: number,
+    quantity: number,
+    includeWhite = false,
+    cleanupDelayMs = 600,
+  ) {
     const totalParticles = Phaser.Math.Clamp(quantity, 1, 30);
     const tint = includeWhite && Math.random() > 0.5 ? 0xffffff : color;
 
@@ -762,18 +1003,64 @@ export class GameScene extends Phaser.Scene {
     });
 
     emitter.explode(totalParticles, x, y);
-    this.time.delayedCall(600, () => emitter.destroy());
+    this.time.delayedCall(cleanupDelayMs, () => emitter.destroy());
   }
 
-  private emitHealingParticles(x: number, y: number, color: number) {
-    const totalParticles = Phaser.Math.Between(12, 18);
-    const emitter = this.add.particles(x, y, this.particleTextureKey, {
-      speed: { min: 50, max: 130 },
+  private emitBloodSplatter(x: number, y: number) {
+    const splatterParticles = Phaser.Math.Between(18, 26);
+    const splatterEmitter = this.add.particles(x, y, this.particleTextureKey, {
+      speed: { min: 70, max: 190 },
       angle: { min: 0, max: 360 },
-      scale: { start: 0.6, end: 0 },
+      scale: { start: 0.55, end: 0.08 },
+      alpha: { start: 0.88, end: 0 },
+      lifespan: { min: 500, max: 840 },
+      tint: BLOOD_MAIN_COLOR,
+      quantity: splatterParticles,
+      emitting: false,
+      gravityY: 140,
+    });
+
+    splatterEmitter.explode(splatterParticles, x, y);
+    this.time.delayedCall(BLOOD_SPLATTER_CLEANUP_MS, () => splatterEmitter.destroy());
+
+    const dropletParticles = Phaser.Math.Between(10, 16);
+    const dropletsEmitter = this.add.particles(x, y, this.particleTextureKey, {
+      speed: { min: 120, max: 260 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.3, end: 0.04 },
+      alpha: { start: 0.8, end: 0 },
+      lifespan: { min: 320, max: 580 },
+      tint: BLOOD_DROPLET_COLOR,
+      quantity: dropletParticles,
+      emitting: false,
+      gravityY: 200,
+    });
+
+    dropletsEmitter.explode(dropletParticles, x, y);
+    this.time.delayedCall(BLOOD_DROPLET_CLEANUP_MS, () => dropletsEmitter.destroy());
+
+    const stain = this.add.circle(x, y, 2.5, BLOOD_STAIN_COLOR, 0.66);
+    stain.setDepth(285);
+
+    this.tweens.add({
+      targets: stain,
+      scaleX: Phaser.Math.FloatBetween(2.1, 2.6),
+      scaleY: Phaser.Math.FloatBetween(1.7, 2.2),
+      alpha: 0,
+      duration: 1800,
+      ease: 'Quad.Out',
+      onComplete: () => stain.destroy(),
+    });
+  }
+
+  private emitSplashParticles(x: number, y: number, color: number) {
+    const totalParticles = Phaser.Math.Between(16, 24);
+    const emitter = this.add.particles(x, y, this.particleTextureKey, {
+      speed: { min: 70, max: 200 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.7, end: 0 },
       alpha: { start: 1, end: 0 },
-      lifespan: { min: 400, max: 550 },
-      gravityY: -20,
+      lifespan: { min: 320, max: 520 },
       tint: color,
       quantity: totalParticles,
       emitting: false,
@@ -781,6 +1068,57 @@ export class GameScene extends Phaser.Scene {
 
     emitter.explode(totalParticles, x, y);
     this.time.delayedCall(600, () => emitter.destroy());
+
+    const ripple = this.add.circle(x, y, 3, color, 0.5);
+    ripple.setDepth(299);
+
+    this.tweens.add({
+      targets: ripple,
+      scale: 3,
+      alpha: 0,
+      duration: 360,
+      ease: 'Cubic.Out',
+      onComplete: () => ripple.destroy(),
+    });
+  }
+
+  private emitSplashPotion(
+    fromPos: Position | undefined,
+    toPos: Position,
+    color: number,
+    onImpact?: () => void,
+  ) {
+    const end = this.gridToWorld(toPos);
+    const start = fromPos ? this.gridToWorld(fromPos) : { x: end.x, y: end.y - CELL_SIZE * 1.4 };
+
+    const potion = this.add.circle(start.x, start.y, 4, color, 1);
+    potion.setDepth(300);
+    potion.setStrokeStyle(1, 0xffffff, 0.8);
+
+    const travelDuration = Phaser.Math.Clamp(
+      220 + Phaser.Math.Distance.Between(start.x, start.y, end.x, end.y) * 1.1,
+      220,
+      420,
+    );
+
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: travelDuration,
+      ease: 'Sine.InOut',
+      onUpdate: (tween) => {
+        const progress = tween.getValue() ?? 0;
+        potion.x = Phaser.Math.Linear(start.x, end.x, progress);
+        const baseY = Phaser.Math.Linear(start.y, end.y, progress);
+        const arcHeight = Math.sin(progress * Math.PI) * Math.max(18, Math.abs(end.y - start.y) * 0.35 + 24);
+        potion.y = baseY - arcHeight;
+      },
+      onComplete: () => {
+        potion.destroy();
+        this.emitSplashParticles(end.x, end.y, color);
+        onImpact?.();
+      },
+    });
   }
 
   private emitMovementTrail(x: number, y: number, color: number) {
@@ -796,7 +1134,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private emitShockwave(x: number, y: number, color: number) {
+  private emitShockwave(x: number, y: number, color: number, durationMs = 380) {
     const shockwave = this.add.graphics();
     shockwave.setDepth(290);
     shockwave.lineStyle(3, color, 0.8);
@@ -806,7 +1144,7 @@ export class GameScene extends Phaser.Scene {
       targets: shockwave,
       scale: 5,
       alpha: 0,
-      duration: 380,
+      duration: durationMs,
       ease: 'Cubic.Out',
       onUpdate: () => {
         shockwave.clear();
@@ -830,9 +1168,9 @@ export class GameScene extends Phaser.Scene {
     const primaryColor = unitColor ?? 0xef4444;
     const secondaryColor = unitColor !== undefined ? this.blendColors(unitColor, 0xf97316) : 0xf97316;
 
-    this.emitParticleBurst(x, y, primaryColor, 36, true);
-    this.emitParticleBurst(x, y, secondaryColor, 26, true);
-    this.emitShockwave(x, y, primaryColor);
+    this.emitParticleBurst(x, y, primaryColor, 36, true, DEATH_PARTICLE_CLEANUP_MS);
+    this.emitParticleBurst(x, y, secondaryColor, 26, true, DEATH_PARTICLE_CLEANUP_MS);
+    this.emitShockwave(x, y, primaryColor, DEATH_SHOCKWAVE_DURATION_MS);
 
     const core = this.add.circle(x, y, 9, 0xffffff, 0.95);
     core.setDepth(300);
@@ -841,62 +1179,9 @@ export class GameScene extends Phaser.Scene {
       targets: core,
       scale: 2.6,
       alpha: 0,
-      duration: 180,
+      duration: DEATH_EXPLOSION_CORE_DURATION_MS,
       ease: 'Cubic.Out',
       onComplete: () => core.destroy(),
-    });
-  }
-
-  private emitAbilityLightningBolt(position: Position) {
-    const { x, y } = this.gridToWorld(position);
-
-    this.emitParticleBurst(x, y, 0xfacc15, 18, true);
-
-    const boltGlow = this.add.graphics();
-    boltGlow.setDepth(299);
-    boltGlow.setAlpha(0.9);
-
-    const bolt = this.add.graphics();
-    bolt.setDepth(301);
-    bolt.setAlpha(1);
-
-    const top = { x, y: y - 18 };
-    const upper = { x: x - 4, y: y - 6 };
-    const mid = { x: x + 3, y: y + 2 };
-    const lower = { x: x - 2, y: y + 11 };
-    const tip = { x: x + 2, y: y + 19 };
-
-    boltGlow.lineStyle(8, 0xfacc15, 0.35);
-    boltGlow.beginPath();
-    boltGlow.moveTo(top.x, top.y);
-    boltGlow.lineTo(upper.x, upper.y);
-    boltGlow.lineTo(mid.x, mid.y);
-    boltGlow.lineTo(lower.x, lower.y);
-    boltGlow.lineTo(tip.x, tip.y);
-    boltGlow.strokePath();
-
-    bolt.lineStyle(3, 0xfef08a, 1);
-    bolt.beginPath();
-    bolt.moveTo(top.x, top.y);
-    bolt.lineTo(upper.x, upper.y);
-    bolt.lineTo(mid.x, mid.y);
-    bolt.lineTo(lower.x, lower.y);
-    bolt.lineTo(tip.x, tip.y);
-    bolt.strokePath();
-
-    const lightningCore = this.add.circle(x, y + 5, 5, 0xfef08a, 0.9);
-    lightningCore.setDepth(302);
-
-    this.tweens.add({
-      targets: [boltGlow, bolt, lightningCore],
-      alpha: 0,
-      duration: 190,
-      ease: 'Cubic.Out',
-      onComplete: () => {
-        boltGlow.destroy();
-        bolt.destroy();
-        lightningCore.destroy();
-      },
     });
   }
 
@@ -938,15 +1223,13 @@ export class GameScene extends Phaser.Scene {
     container: Phaser.GameObjects.Container,
     healedAmount: number,
     unitColor: number,
+    targetPos: Position,
   ) {
     const clampedHeal = Math.max(0, healedAmount);
     if (clampedHeal <= 0) return;
     if (container.getData('animationState') === 'dying') return;
 
-    const movingTargetX = container.getData('moveTargetX') as number | undefined;
-    const movingTargetY = container.getData('moveTargetY') as number | undefined;
-    const startX = movingTargetX ?? container.x;
-    const startY = movingTargetY ?? container.y;
+    const { x: startX, y: startY } = this.gridToWorld(targetPos);
 
     const healingText = this.add.text(startX, startY, `+${clampedHeal}`, {
       fontSize: clampedHeal >= 10 ? '20px' : '14px',
@@ -982,7 +1265,9 @@ export class GameScene extends Phaser.Scene {
     effectEntry.tween = tween;
     effects.add(effectEntry);
 
-    this.emitHealingParticles(startX, startY, 0x22c55e);
+    const splashSource = this.pendingHealingSplashSources.get(unitId);
+    this.pendingHealingSplashSources.delete(unitId);
+    this.emitSplashPotion(splashSource, targetPos, HEAL_POTION_COLOR);
 
     const square = container.getData('mainSquare') as Phaser.GameObjects.Rectangle | undefined;
     if (square) {
@@ -1209,7 +1494,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private capturePendingAbilityDamageFeedback(currentBoardUnits: Map<string, UnitInstance>) {
-    const abilityWasUsed = Array.from(currentBoardUnits.entries()).some(([id, currentUnit]) => {
+    const abilityCasterEntry = Array.from(currentBoardUnits.entries()).find(([id, currentUnit]) => {
       const previousUnit = this.previousBoardUnits.get(id);
       return Boolean(
         previousUnit
@@ -1218,16 +1503,22 @@ export class GameScene extends Phaser.Scene {
       );
     });
 
+    const abilityWasUsed = Boolean(abilityCasterEntry);
+
     if (!abilityWasUsed) {
       return;
     }
 
     const feedback: PendingAbilityDamageFeedback[] = [];
+    const resolvedAbilityCasterPos = abilityCasterEntry
+      ? abilityCasterEntry[1].position ?? this.previousBoardUnits.get(abilityCasterEntry[0])?.position
+      : null;
+    const abilityCasterPos = resolvedAbilityCasterPos ?? undefined;
 
     for (const [id, previousUnit] of this.previousBoardUnits.entries()) {
       const currentUnit = currentBoardUnits.get(id);
-      const damage = Math.max(0, previousUnit.currentHp - (currentUnit?.currentHp ?? 0));
-      if (damage <= 0) {
+      const hpDelta = previousUnit.currentHp - (currentUnit?.currentHp ?? 0);
+      if (hpDelta === 0) {
         continue;
       }
 
@@ -1239,8 +1530,9 @@ export class GameScene extends Phaser.Scene {
       feedback.push({
         targetInstanceId: id,
         targetPos,
-        damage,
-        targetDied: !currentUnit || currentUnit.currentHp <= 0 || !currentUnit.position,
+        attackerPos: abilityCasterPos,
+        damage: hpDelta,
+        targetDied: hpDelta > 0 && (!currentUnit || currentUnit.currentHp <= 0 || !currentUnit.position),
       });
     }
 
@@ -1259,10 +1551,16 @@ export class GameScene extends Phaser.Scene {
     const feedback = this.pendingAbilityDamageFeedback;
 
     feedback.forEach((entry) => {
+      if (entry.damage < 0) {
+        this.pendingHealingSplashSources.set(entry.targetInstanceId, entry.attackerPos ?? entry.targetPos);
+        return;
+      }
+
       if (entry.targetDied) {
         this.pendingAbilityDeathFeedback.set(entry.targetInstanceId, {
           damage: entry.damage,
           targetPos: entry.targetPos,
+          attackerPos: entry.attackerPos,
         });
         return;
       }
@@ -1272,14 +1570,13 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      this.flashUnit(entry.targetInstanceId, entry.damage);
-      this.time.delayedCall(430, () => {
+      this.emitSplashPotion(entry.attackerPos, entry.targetPos, DAMAGE_POTION_COLOR, () => {
         const container = this.unitSprites.get(entry.targetInstanceId);
         if (!container || container.getData('animationState') === 'dying') {
           return;
         }
 
-        this.emitAbilityLightningBolt(entry.targetPos);
+        this.flashUnit(entry.targetInstanceId, entry.damage);
       });
     });
 
@@ -1313,16 +1610,18 @@ export class GameScene extends Phaser.Scene {
     }
 
     const attackerSurvived = Boolean(currentAttacker && currentAttacker.currentHp > 0);
-    const attackerFlashDuration = attackerSurvived ? 210 : 420;
+    const attackerFlashDuration = attackerSurvived
+      ? ATTACKER_SURVIVE_FLASH_DURATION_MS
+      : ATTACKER_DIES_FLASH_DURATION_MS;
 
     this.flashUnit(feedback.attackerInstanceId, attackerDamage, attackerFlashDuration);
-    this.flashUnit(feedback.defenderInstanceId, defenderDamage);
+    this.flashUnit(feedback.defenderInstanceId, defenderDamage, DEFENDER_FLASH_DURATION_MS);
 
-    this.time.delayedCall(70, () => {
+    this.time.delayedCall(ATTACK_SLASH_DELAY_MS, () => {
       this.showSlashEffect(feedback.attackerPos, feedback.defenderPos);
     });
 
-    this.time.delayedCall(130, () => {
+    this.time.delayedCall(ATTACK_DAMAGE_NUMBER_DELAY_MS, () => {
       this.showDamageNumber(
         feedback.attackerPos,
         attackerDamage,
@@ -2094,9 +2393,6 @@ export class GameScene extends Phaser.Scene {
     const cell = state.board.cells[pos.y]?.[pos.x];
 
     if (!cell || !cell.occupantId) {
-
-      store.clearHoveredCard();
-
       return;
 
     }
@@ -2125,7 +2421,7 @@ export class GameScene extends Phaser.Scene {
 
 
 
-    store.clearHoveredCard();
+    return;
 
   }
 

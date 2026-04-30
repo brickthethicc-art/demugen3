@@ -546,7 +546,7 @@ export function deployReserve(
   if (state.turnPhase === TurnPhase.STANDBY) {
     const standbyStatus = getCurrentPlayerStandbyStatus(newState);
     
-    // Stay in standby if any step is still active (including optional summon-to-bench)
+    // Stay in standby if any step is still active (including required summon-to-bench)
     if (!standbyStatus.isActive) {
       return { ok: true, value: { ...newState, turnPhase: TurnPhase.MOVE } };
     }
@@ -593,7 +593,7 @@ export function playCard(
   if (state.turnPhase === TurnPhase.STANDBY) {
     const standbyStatus = getCurrentPlayerStandbyStatus(newState);
     
-    // Stay in standby if any step is still active (including optional summon-to-bench)
+    // Stay in standby if any step is still active (including required summon-to-bench)
     if (!standbyStatus.isActive) {
       return { ok: true, value: { ...newState, turnPhase: TurnPhase.MOVE } };
     }

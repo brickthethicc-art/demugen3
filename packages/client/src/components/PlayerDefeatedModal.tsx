@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useGameStore } from '../store/game-store.js';
 import { LogOut, Eye } from 'lucide-react';
 
@@ -8,12 +9,28 @@ export function PlayerDefeatedModal() {
   const setSpectating = useGameStore((s) => s.setSpectating);
   const setScreen = useGameStore((s) => s.setScreen);
   const reset = useGameStore((s) => s.reset);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!playerDefeatedModalOpen) {
+      setVisible(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setVisible(true);
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [playerDefeatedModalOpen]);
 
   // CRITICAL: Only render modal if explicitly opened via store state
-  if (!gameState || !playerDefeatedModalOpen) return null;
+  if (!gameState || !playerDefeatedModalOpen || !visible) return null;
 
   const alivePlayers = gameState.players.filter((p) => !p.isEliminated);
-  const canSpectate = alivePlayers.length > 2;
+  const canSpectate = alivePlayers.length >= 1;
 
   const handleLeaveGame = () => {
     closePlayerDefeatedModal();
@@ -39,7 +56,7 @@ export function PlayerDefeatedModal() {
             onClick={handleLeaveGame}
             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-mugen-accent hover:bg-mugen-accent/80 rounded-lg font-medium transition"
           >
-            <LogOut size={18} /> Leave Game
+            <LogOut size={18} /> Return to Main Menu
           </button>
 
           {canSpectate && (

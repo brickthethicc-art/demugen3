@@ -7,14 +7,13 @@ import { useGameStore } from '../store/game-store.js';
  */
 export function useCardHover() {
   const setHoveredCard = useGameStore(state => state.setHoveredCard);
-  const clearHoveredCard = useGameStore(state => state.clearHoveredCard);
 
   const handleMouseEnter = (card: Card) => {
     setHoveredCard(card);
   };
 
   const handleMouseLeave = () => {
-    clearHoveredCard();
+    // Intentionally no-op: keep last hovered card visible until a new hover occurs.
   };
 
   return {

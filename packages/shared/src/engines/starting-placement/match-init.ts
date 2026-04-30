@@ -24,24 +24,10 @@ export function initializeMatchUnits(gameState: GameState): Result<GameState> {
     return { ok: false, error: `Cannot initialize match units in phase ${gameState.phase}, expected PRE_GAME` };
   }
 
-  // Step 1: Ensure consistent player ordering by sorting by ID
-  // CRITICAL: Track which player should start before sorting
-  const currentPlayerBeforeSort = gameState.players[gameState.currentPlayerIndex];
-  const sortedPlayers = [...gameState.players].sort((a, b) => a.id.localeCompare(b.id));
-
-  // Update currentPlayerIndex to match the sorted order
-  const newCurrentPlayerIndex = currentPlayerBeforeSort
-    ? sortedPlayers.findIndex(p => p.id === currentPlayerBeforeSort.id)
-    : 0;
-
-  const reorderedState = {
-    ...gameState,
-    players: sortedPlayers,
-    currentPlayerIndex: newCurrentPlayerIndex >= 0 ? newCurrentPlayerIndex : 0,
-  };
-
-  // Step 2: Assign colors to all players
-  let stateWithColors = assignPlayerColors(reorderedState);
+  // Step 1: Assign colors while preserving the existing player order.
+  // Player ordering is established earlier in game creation and must remain stable
+  // for turn ownership checks that rely on currentPlayerIndex.
+  let stateWithColors = assignPlayerColors(gameState);
 
   let updatedBoard = gameState.board;
   const updatedPlayers = [];

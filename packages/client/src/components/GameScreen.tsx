@@ -8,6 +8,7 @@ import { HandLimitModal } from './HandLimitModal.js';
 import { StandbyDeployModal } from './StandbyDeployModal.js';
 import { SummonToBenchModal } from './SummonToBenchModal.js';
 import { PlayerDefeatedModal } from './PlayerDefeatedModal.js';
+import { VictoryModal } from './VictoryModal.js';
 import { MobileGameScreen } from './mobile/MobileGameScreen.js';
 import { useGameStore } from '../store/game-store.js';
 
@@ -16,6 +17,7 @@ export function GameScreen() {
 
   const gameState = useGameStore((s) => s.gameState);
   const mobileUiMode = useGameStore((s) => s.mobileUiMode);
+  const isSpectating = useGameStore((s) => s.isSpectating);
 
   console.log('GAME SCREEN - gameState exists:', !!gameState);
   console.log('GAME SCREEN - gameState phase:', gameState?.phase);
@@ -44,6 +46,7 @@ export function GameScreen() {
           <StandbyDeployModal />
           <SummonToBenchModal />
           <PlayerDefeatedModal />
+          <VictoryModal />
         </>
       );
     }
@@ -76,6 +79,12 @@ export function GameScreen() {
         <StandbyDeployModal />
         <SummonToBenchModal />
         <PlayerDefeatedModal />
+        <VictoryModal />
+        {isSpectating && (
+          <div className="fixed top-4 left-1/2 z-[11000] -translate-x-1/2 rounded-full border border-white/15 bg-black/70 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gray-200">
+            Spectating
+          </div>
+        )}
       </div>
     );
   } catch (error) {

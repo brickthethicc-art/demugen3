@@ -27,7 +27,7 @@ export function getSummonableHandUnits(player: PlayerState): UnitCard[] {
  * Strict ordering enforced:
  *   Step 1 — Discard (if hand > MAX_HAND_SIZE)
  *   Step 2 — Promote bench → active (if active < 3 AND bench has units)
- *   Step 3 — Summon hand → bench (optional, if bench has open slots AND hand has summonable units AND LP sufficient)
+ *   Step 3 — Summon hand → bench (required when bench has open slots AND hand has summonable units AND LP sufficient)
  */
 export function shouldTriggerStandbyPhase(player: PlayerState, boardWidth: number = 23, boardHeight: number = 23): StandbyPhaseStatus {
   // Count only units actually ON the board (within bounds), not bench units with out-of-bounds positions
@@ -67,12 +67,11 @@ export function shouldTriggerStandbyPhase(player: PlayerState, boardWidth: numbe
   } else if (needsBenchDeployment) {
     message = 'Please move a bench/reserved unit onto the field.';
   } else if (canSummonToBench) {
-    message = 'You may summon a unit from your hand to the bench (costs LP).';
+    message = 'You must summon a unit from your hand to the bench (costs LP).';
   }
 
   // Can progress only when mandatory requirements are satisfied
-  // (bench summon is optional — player can skip it)
-  const canProgress = !needsHandDiscard && !needsBenchDeployment;
+  const canProgress = !needsHandDiscard && !needsBenchDeployment && !canSummonToBench;
 
   return {
     isActive,

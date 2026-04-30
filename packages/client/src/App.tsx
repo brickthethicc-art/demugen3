@@ -20,7 +20,7 @@ export function App() {
       return;
     }
     if (gameState.phase === GamePhase.ENDED) {
-      setScreen('gameover');
+      setScreen('game');
     } else if (gameState.phase === GamePhase.PRE_GAME) {
       setScreen('pregame');
     } else if (gameState.phase === GamePhase.IN_PROGRESS) {

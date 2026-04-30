@@ -282,6 +282,43 @@ describe('initializeMatchUnits', () => {
     expect(result.value.phase).toBe(GamePhase.IN_PROGRESS);
   });
 
+  it('preserves player order and currentPlayerIndex for 4-player games', () => {
+    const pA = createPlayer({
+      id: 'z-player',
+      team: { activeUnits: makeUnits(3), reserveUnits: makeUnits(3), locked: true },
+      units: [],
+    });
+    const pB = createPlayer({
+      id: 'a-player',
+      team: { activeUnits: makeUnits(3), reserveUnits: makeUnits(3), locked: true },
+      units: [],
+    });
+    const pC = createPlayer({
+      id: 'm-player',
+      team: { activeUnits: makeUnits(3), reserveUnits: makeUnits(3), locked: true },
+      units: [],
+    });
+    const pD = createPlayer({
+      id: 'b-player',
+      team: { activeUnits: makeUnits(3), reserveUnits: makeUnits(3), locked: true },
+      units: [],
+    });
+
+    const preGameState = createGameState({
+      phase: GamePhase.PRE_GAME,
+      players: [pA, pB, pC, pD],
+      currentPlayerIndex: 2,
+    });
+
+    const result = initializeMatchUnits(preGameState);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.players.map((p) => p.id)).toEqual(['z-player', 'a-player', 'm-player', 'b-player']);
+    expect(result.value.currentPlayerIndex).toBe(2);
+    expect(result.value.players[result.value.currentPlayerIndex]?.id).toBe('m-player');
+  });
+
   // ── Edge cases ──
 
   it('fails if any player team is NOT locked', () => {

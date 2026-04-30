@@ -193,9 +193,12 @@ function resolveGameIntent(
   playerId: string,
   intent: ClientIntent
 ): Result<GameState> {
+  let intentResult: Result<GameState>;
+
   switch (intent.type) {
     case IntentType.ADVANCE_PHASE:
-      return TurnEngine.advancePhase(state);
+      intentResult = TurnEngine.advancePhase(state);
+      break;
 
     case IntentType.END_TURN: {
       if (state.turnPhase !== TurnPhase.END) {
@@ -206,25 +209,32 @@ function resolveGameIntent(
           if (!advanced.ok) break;
           current = advanced.value;
         }
-        return TurnEngine.endTurn(current);
+        intentResult = TurnEngine.endTurn(current);
+        break;
       }
-      return TurnEngine.endTurn(state);
+      intentResult = TurnEngine.endTurn(state);
+      break;
     }
 
     case IntentType.MOVE_UNIT:
-      return TurnEngine.processMove(state, playerId, intent.unitId, intent.target);
+      intentResult = TurnEngine.processMove(state, playerId, intent.unitId, intent.target);
+      break;
 
     case IntentType.USE_ABILITY:
-      return TurnEngine.processAbility(state, playerId, intent.unitId, intent.targetId ?? null, intent.targetOwnerId ?? null);
+      intentResult = TurnEngine.processAbility(state, playerId, intent.unitId, intent.targetId ?? null, intent.targetOwnerId ?? null);
+      break;
 
     case IntentType.ATTACK:
-      return TurnEngine.processAttack(state, playerId, intent.attackerId, intent.defenderId, intent.defenderOwnerId);
+      intentResult = TurnEngine.processAttack(state, playerId, intent.attackerId, intent.defenderId, intent.defenderOwnerId);
+      break;
 
     case IntentType.DEPLOY_RESERVE:
-      return TurnEngine.deployReserve(state, playerId, intent.unitId, intent.position);
+      intentResult = TurnEngine.deployReserve(state, playerId, intent.unitId, intent.position);
+      break;
 
     case IntentType.SUMMON_TO_BENCH:
-      return TurnEngine.summonToBench(state, playerId, (intent as SummonToBenchIntent).cardId);
+      intentResult = TurnEngine.summonToBench(state, playerId, (intent as SummonToBenchIntent).cardId);
+      break;
 
     case IntentType.PLAY_SORCERY: {
       const sorceryIntent = intent as PlaySorceryIntent;
@@ -261,12 +271,32 @@ function resolveGameIntent(
       // Discard the sorcery card after effect resolves
       const finalState = discardSorceryCard(effectResult.value, playerIndex, card);
 
-      return { ok: true, value: finalState };
+      intentResult = { ok: true, value: finalState };
+      break;
     }
 
     default:
       return { ok: false, error: `Unknown intent type: ${(intent as ClientIntent).type}` };
   }
+
+  if (!intentResult.ok) {
+    return intentResult;
+  }
+
+  return finalizeInProgressState(intentResult.value);
+}
+
+function finalizeInProgressState(state: GameState): Result<GameState> {
+  if (state.phase !== GamePhase.IN_PROGRESS) {
+    return { ok: true, value: state };
+  }
+
+  const alivePlayers = state.players.filter((player) => !player.isEliminated);
+  if (alivePlayers.length <= 1) {
+    return GameEngine.transitionPhase(state, GamePhase.ENDED);
+  }
+
+  return { ok: true, value: state };
 }
 
 function resolveDiscardCard(

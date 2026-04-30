@@ -55,29 +55,63 @@ describe('MainDeckPile', () => {
 });
 
 describe('DiscardPile', () => {
+  const setDiscardCards = (cards: Card[]) => {
+    useGameStore.setState({
+      playerId: 'p1',
+      gameState: {
+        players: [
+          {
+            id: 'p1',
+            discardPile: { cards },
+          },
+        ],
+      } as any,
+    });
+  };
+
   beforeEach(() => {
-    useGameStore.setState({ mainDeck: [], discardPile: [] });
+    useGameStore.setState({ mainDeck: [], discardPile: [], gameState: null, playerId: null });
   });
 
   it('renders with correct card count', () => {
     const cards: Card[] = [makeUnit('x'), makeUnit('y')];
-    useGameStore.setState({ discardPile: cards });
+    setDiscardCards(cards);
     render(<DiscardPile />);
     expect(screen.getByTestId('discard-pile')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
   });
 
   it('shows 0 when discard pile is empty', () => {
-    useGameStore.setState({ discardPile: [] });
+    setDiscardCards([]);
     render(<DiscardPile />);
     expect(screen.getByText('0')).toBeInTheDocument();
   });
 
   it('shows top card name when pile is non-empty', () => {
     const cards: Card[] = [makeUnit('first'), makeUnit('top')];
-    useGameStore.setState({ discardPile: cards });
+    setDiscardCards(cards);
     render(<DiscardPile />);
     expect(screen.getByText('Unit top')).toBeInTheDocument();
+  });
+
+  it('renders only the recent stack while keeping total count', () => {
+    const cards: Card[] = [
+      makeUnit('1'),
+      makeUnit('2'),
+      makeUnit('3'),
+      makeUnit('4'),
+      makeUnit('5'),
+      makeUnit('6'),
+      makeUnit('7'),
+    ];
+    setDiscardCards(cards);
+
+    render(<DiscardPile />);
+
+    expect(screen.getByText('7')).toBeInTheDocument();
+    expect(screen.getByText('+2')).toBeInTheDocument();
+    expect(screen.getByText('Unit 7')).toBeInTheDocument();
+    expect(screen.queryByText('Unit 1')).not.toBeInTheDocument();
   });
 });
 

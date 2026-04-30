@@ -70,6 +70,27 @@ describe('ActionResolver', () => {
       }
     });
 
+    it('transitions to ENDED when one player remains alive', () => {
+      const state: GameState = {
+        ...gameState,
+        phase: GamePhase.IN_PROGRESS,
+        turnPhase: TurnPhase.MOVE,
+        currentPlayerIndex: 0,
+        players: gameState.players.map((player, index) =>
+          index === 1 ? { ...player, life: 0, isEliminated: true } : player
+        ),
+      };
+
+      const intent: ClientIntent = { type: IntentType.ADVANCE_PHASE };
+      const result = resolveIntent(state, 'p1', intent);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.phase).toBe(GamePhase.ENDED);
+        expect(result.value.winnerId).toBe('p1');
+      }
+    });
+
     it('wrong player\'s turn — returns error', () => {
       const state: GameState = {
         ...gameState,

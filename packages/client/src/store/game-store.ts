@@ -83,7 +83,6 @@ export interface GameStore {
 
   // Summon to bench modal
   summonModalOpen: boolean;
-  summonModalDismissed: boolean;
 
   // Player defeat modal
   playerDefeatedModalOpen: boolean;
@@ -150,7 +149,6 @@ export interface GameStore {
   setCanSelectBenchUnits: (canSelect: boolean) => void;
   openSummonModal: () => void;
   closeSummonModal: () => void;
-  skipSummonModal: () => void;
   openPlayerDefeatedModal: () => void;
   closePlayerDefeatedModal: () => void;
   setSpectating: (spectating: boolean) => void;
@@ -198,7 +196,6 @@ const initialState = {
   standbyModalDismissed: false,
   canSelectBenchUnits: false,
   summonModalOpen: false,
-  summonModalDismissed: false,
   playerDefeatedModalOpen: false,
   isSpectating: false,
   isPlayerReady: false,
@@ -271,8 +268,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       newScreen = 'game';
     } else if (state.phase === 'PRE_GAME' && currentScreen !== 'pregame') {
       newScreen = 'pregame';
-    } else if (state.phase === 'ENDED' && currentScreen !== 'gameover') {
-      newScreen = 'gameover';
+    } else if (state.phase === 'ENDED' && currentScreen !== 'game') {
+      newScreen = 'game';
     }
 
     // Log initial board state on first IN_PROGRESS transition
@@ -297,16 +294,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
         get().setError(null);
       }
 
-      // FAILSAFE: Validate and correct player life/isEliminated state before processing
+      // FAILSAFE: Validate and correct only obvious initialization anomalies.
+      // Never overwrite legitimate elimination/life updates after initialization.
+      const isGameInitialized = get().isGameInitialized;
       const validatedPlayers = state.players.map(p => {
-        // If life is undefined, null, or <= 0 during initialization, correct it
-        if (p.life === undefined || p.life === null || p.life <= 0) {
+        if (p.life === undefined || p.life === null || Number.isNaN(p.life)) {
           return { ...p, life: 24, isEliminated: false };
         }
-        // If isEliminated is true during first turn, correct it
-        if (p.isEliminated && state.turnNumber === 1) {
-          return { ...p, isEliminated: false };
+
+        if (!isGameInitialized && state.turnNumber === 1) {
+          if (p.life <= 0) {
+            return { ...p, life: 24, isEliminated: false };
+          }
+          if (p.isEliminated) {
+            return { ...p, isEliminated: false };
+          }
         }
+
         return p;
       });
 
@@ -363,7 +367,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
         // Check if summon-to-bench step is available (step 3 of standby)
         const standbyStatus = shouldTriggerStandbyPhase(currentPlayer, state.board.width, state.board.height);
-        if (standbyStatus.canSummonToBench && !get().summonModalOpen && !get().summonModalDismissed) {
+        if (standbyStatus.canSummonToBench && !get().summonModalOpen) {
           // Only show summon modal after standby deploy is resolved
           if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard) {
             set({ summonModalOpen: true });
@@ -375,8 +379,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
           set({ standbyModalNotification: false, standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false });
         }
         // Reset summon modal state
-        if (get().summonModalOpen || get().summonModalDismissed) {
-          set({ summonModalOpen: false, summonModalDismissed: false });
+        if (get().summonModalOpen) {
+          set({ summonModalOpen: false });
         }
       }
 
@@ -405,7 +409,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return; // Exit early to prevent modal from showing
       }
 
-      if (currentPlayer && currentPlayer.isEliminated && !get().playerDefeatedModalOpen && state.phase === 'IN_PROGRESS' && get().isGameInitialized) {
+      if (currentPlayer && currentPlayer.isEliminated && !get().playerDefeatedModalOpen && get().isGameInitialized) {
         set({ playerDefeatedModalOpen: true });
       }
     }
@@ -515,9 +519,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   }),
   resetStandbyModal: () => set({ standbyModalOpen: false, standbyModalDismissed: false, canSelectBenchUnits: false }),
   setCanSelectBenchUnits: (canSelect) => set({ canSelectBenchUnits: canSelect }),
-  openSummonModal: () => set({ summonModalOpen: true, summonModalDismissed: false }),
+  openSummonModal: () => set({ summonModalOpen: true }),
   closeSummonModal: () => set({ summonModalOpen: false }),
-  skipSummonModal: () => set({ summonModalOpen: false, summonModalDismissed: true }),
   openPlayerDefeatedModal: () => set({ playerDefeatedModalOpen: true }),
   closePlayerDefeatedModal: () => set({ playerDefeatedModalOpen: false }),
   setSpectating: (spectating) => set({ isSpectating: spectating }),

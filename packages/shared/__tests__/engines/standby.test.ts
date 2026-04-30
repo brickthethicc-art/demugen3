@@ -257,17 +257,14 @@ describe('Standby Phase', () => {
     if (discardResult1.ok) {
       expect(discardResult1.value.turnPhase).toBe(TurnPhase.STANDBY);
 
-      // Discard second card — now at MAX_HAND_SIZE and can leave standby.
+      // Discard second card — hand size is valid, but summon step can still block standby exit.
       const discardResult2 = playCard(discardResult1.value, 'p1', 'u2');
       expect(discardResult2.ok).toBe(true);
       if (!discardResult2.ok) return;
       expect(discardResult2.value.players[0]!.hand.cards.length).toBe(MAX_HAND_SIZE);
 
       const advanceResult = advancePhase(discardResult2.value);
-      expect(advanceResult.ok).toBe(true);
-      if (advanceResult.ok) {
-        expect(advanceResult.value.turnPhase).toBe(TurnPhase.MOVE);
-      }
+      expect(advanceResult.ok).toBe(false);
     }
   });
 
@@ -300,5 +297,45 @@ describe('Standby Phase', () => {
     // With priority-based messaging, discard step shows first (step 1 before step 2)
     expect(status.message).toBe('Hand size exceeded. Please discard down to the maximum limit.');
     expect(status.canProgress).toBe(false);
+  });
+
+  it('requires summon-to-bench before standby can progress when summon is available', () => {
+    const boardUnit1 = createUnit({ id: 'board1', atk: 3, hp: 10, maxHp: 10, movement: 2, range: 1, cost: 5 });
+    const boardUnit2 = createUnit({ id: 'board2', atk: 2, hp: 8, maxHp: 8, movement: 2, range: 1, cost: 5 });
+    const boardUnit3 = createUnit({ id: 'board3', atk: 4, hp: 6, maxHp: 6, movement: 1, range: 1, cost: 5 });
+    const summonableHandUnit = createUnit({ id: 'hand-unit', atk: 2, hp: 7, maxHp: 7, movement: 2, range: 1, cost: 4 });
+    const tooExpensiveHandUnit = createUnit({ id: 'hand-expensive', atk: 5, hp: 9, maxHp: 9, movement: 2, range: 1, cost: 30 });
+
+    const activeUnit1 = createUnitInstance({ card: boardUnit1, currentHp: 10, ownerId: 'p1', position: { x: 0, y: 0 } });
+    const activeUnit2 = createUnitInstance({ card: boardUnit2, currentHp: 8, ownerId: 'p1', position: { x: 1, y: 0 } });
+    const activeUnit3 = createUnitInstance({ card: boardUnit3, currentHp: 6, ownerId: 'p1', position: { x: 2, y: 0 } });
+
+    const p1WithSummon = createPlayer({
+      id: 'p1',
+      life: 24,
+      isReady: true,
+      units: [activeUnit1, activeUnit2, activeUnit3],
+      team: {
+        activeUnits: [boardUnit1, boardUnit2, boardUnit3],
+        reserveUnits: [],
+        locked: true,
+      },
+      hand: { cards: [summonableHandUnit] },
+      discardPile: { cards: [] },
+    });
+
+    const p1WithoutSummon = {
+      ...p1WithSummon,
+      hand: { cards: [tooExpensiveHandUnit] },
+    };
+
+    const statusWithSummon = shouldTriggerStandbyPhase(p1WithSummon);
+    expect(statusWithSummon.canSummonToBench).toBe(true);
+    expect(statusWithSummon.message).toBe('You must summon a unit from your hand to the bench (costs LP).');
+    expect(statusWithSummon.canProgress).toBe(false);
+
+    const statusWithoutSummon = shouldTriggerStandbyPhase(p1WithoutSummon);
+    expect(statusWithoutSummon.canSummonToBench).toBe(false);
+    expect(statusWithoutSummon.canProgress).toBe(true);
   });
 });

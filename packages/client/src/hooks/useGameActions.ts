@@ -7,67 +7,72 @@ import { useGameStore } from '../store/game-store.js';
 export function useGameActions() {
   const gameState = useGameStore((s) => s.gameState);
   const playerId = useGameStore((s) => s.playerId);
+  const isSpectating = useGameStore((s) => s.isSpectating);
 
   const isMyTurn = gameState
     ? gameState.players[gameState.currentPlayerIndex]?.id === playerId
     : false;
 
+  const currentPlayer = gameState?.players.find((player) => player.id === playerId);
+  const isEliminated = currentPlayer?.isEliminated ?? false;
+  const canAct = isMyTurn && !isSpectating && !isEliminated;
+
   const sendMove = useCallback(
     (unitId: string, target: Position) => {
-      if (!isMyTurn) return;
+      if (!canAct) return;
       sendIntent({ type: IntentType.MOVE_UNIT, unitId, target });
     },
-    [isMyTurn]
+    [canAct]
   );
 
   const sendAbility = useCallback(
     (unitId: string, targetId?: string, targetOwnerId?: string) => {
-      if (!isMyTurn) return;
+      if (!canAct) return;
       sendIntent({ type: IntentType.USE_ABILITY, unitId, targetId, targetOwnerId });
     },
-    [isMyTurn]
+    [canAct]
   );
 
   const sendAttack = useCallback(
     (attackerId: string, defenderId: string, defenderOwnerId: string) => {
-      if (!isMyTurn) return;
+      if (!canAct) return;
       sendIntent({ type: IntentType.ATTACK, attackerId, defenderId, defenderOwnerId });
     },
-    [isMyTurn]
+    [canAct]
   );
 
   const sendAdvancePhase = useCallback(() => {
-    if (!isMyTurn) return;
+    if (!canAct) return;
     sendIntent({ type: IntentType.ADVANCE_PHASE });
-  }, [isMyTurn]);
+  }, [canAct]);
 
   const sendEndTurn = useCallback(() => {
-    if (!isMyTurn) return;
+    if (!canAct) return;
     sendIntent({ type: IntentType.END_TURN });
-  }, [isMyTurn]);
+  }, [canAct]);
 
   const sendDeployReserve = useCallback(
     (unitId: string, position: Position) => {
-      if (!isMyTurn) return;
+      if (!canAct) return;
       sendIntent({ type: IntentType.DEPLOY_RESERVE, unitId, position });
     },
-    [isMyTurn]
+    [canAct]
   );
 
   const sendSummonToBench = useCallback(
     (cardId: string) => {
-      if (!isMyTurn) return;
+      if (!canAct) return;
       sendIntent({ type: IntentType.SUMMON_TO_BENCH, cardId } as any);
     },
-    [isMyTurn]
+    [canAct]
   );
 
   const sendPlaySorcery = useCallback(
     (cardId: string, targetUnitId?: string, targetOwnerId?: string, targetUnitId2?: string, targetOwnerId2?: string) => {
-      if (!isMyTurn) return;
+      if (!canAct) return;
       sendIntent({ type: IntentType.PLAY_SORCERY, cardId, targetUnitId, targetOwnerId, targetUnitId2, targetOwnerId2 } as any);
     },
-    [isMyTurn]
+    [canAct]
   );
 
   return {
