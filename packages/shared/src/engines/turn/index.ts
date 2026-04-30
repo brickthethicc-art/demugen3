@@ -165,7 +165,7 @@ export function processMove(
 
   const moveResult = boardMoveUnit(state.board, unit.position, target, effectiveMovement);
   if (!moveResult.ok) {
-    return { ok: false, error: moveResult.error };
+    return { ok: false, error: 'error' in moveResult ? moveResult.error : 'Failed to move unit' };
   }
 
   const newUnits = currentPlayer.units.map((u) =>
@@ -235,7 +235,7 @@ export function processAbility(
   // This ensures single source of truth for ability rules
   const abilityResult = useAbility(unit, targetUnit);
   if (!abilityResult.ok) {
-    return { ok: false, error: abilityResult.error };
+    return { ok: false, error: 'error' in abilityResult ? abilityResult.error : 'Failed to use ability' };
   }
 
   const { unit: updatedUnit, target: updatedTarget } = abilityResult.value;

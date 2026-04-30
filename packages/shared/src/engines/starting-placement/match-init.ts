@@ -86,7 +86,8 @@ export function initializeMatchUnits(gameState: GameState): Result<GameState> {
       // Place unit on board using unique instance ID
       const placeResult = placeUnit(updatedBoard, unitInstanceId, position);
       if (!placeResult.ok) {
-        return { ok: false, error: `Failed to place unit ${card.id} for player ${player.id}: ${placeResult.error}` };
+        const placeError = 'error' in placeResult ? placeResult.error : 'unknown placement error';
+        return { ok: false, error: `Failed to place unit ${card.id} for player ${player.id}: ${placeError}` };
       }
       updatedBoard = placeResult.value;
     }

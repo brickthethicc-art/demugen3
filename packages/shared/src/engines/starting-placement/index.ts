@@ -157,7 +157,8 @@ export function placeStartingUnits(gameState: GameState, playerId: string): Resu
     // Place unit on board using player-scoped ID to avoid collisions
     const placeResult = placeUnit(updatedBoard, unitInstanceId, position);
     if (!placeResult.ok) {
-      return { ok: false, error: `Failed to place unit ${unitInstanceId}: ${placeResult.error}` };
+      const placeError = 'error' in placeResult ? placeResult.error : 'unknown placement error';
+      return { ok: false, error: `Failed to place unit ${unitInstanceId}: ${placeError}` };
     }
     
     updatedBoard = placeResult.value;
