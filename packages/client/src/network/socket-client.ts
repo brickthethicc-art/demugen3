@@ -13,7 +13,7 @@ function flushPendingDeck(): void {
   }
 }
 
-export function connect(url: string): void {
+export function connect(url?: string): void {
   if (socket) {
     if (socket.connected) {
       return;
@@ -24,7 +24,10 @@ export function connect(url: string): void {
   }
 
   const store = useGameStore.getState();
-  socket = io(url, {
+  const targetUrl = url && url.trim().length > 0 ? url : undefined;
+
+  socket = io(targetUrl, {
+    path: '/socket.io/',
     autoConnect: true,
     timeout: 10000,
     transports: ['websocket', 'polling'], // Allow WebSocket with polling fallback

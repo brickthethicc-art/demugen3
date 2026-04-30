@@ -19,12 +19,11 @@ export function LobbyScreen() {
 
   const handleCreate = async () => {
     if (!name.trim()) return;
-    const serverUrl = import.meta.env.VITE_SERVER_URL || window.location.origin;
     console.log('=== DEBUG: Creating lobby ===');
-    console.log('Server URL:', serverUrl);
+    console.log('Server URL: same-origin');
     console.log('Player name:', name);
     
-    network.connect(serverUrl);
+    network.connect();
     
     // Wait for socket connection before creating lobby
     const maxWaitTime = 5000;
@@ -61,13 +60,12 @@ export function LobbyScreen() {
 
   const handleJoin = async () => {
     if (!name.trim() || !joinCode.trim()) return;
-    const serverUrl = import.meta.env.VITE_SERVER_URL || window.location.origin;
     console.log('=== DEBUG: Joining lobby ===');
-    console.log('Server URL:', serverUrl);
+    console.log('Server URL: same-origin');
     console.log('Lobby code:', joinCode);
     console.log('Player name:', name);
     
-    network.connect(serverUrl);
+    network.connect();
     
     // Wait for socket connection before joining lobby
     const maxWaitTime = 5000;

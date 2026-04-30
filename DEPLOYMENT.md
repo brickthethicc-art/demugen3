@@ -163,8 +163,8 @@ nano .env
 ```env
 NODE_ENV=production
 PORT=3001
-VITE_SERVER_URL=https://your-domain.com
-CORS_ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
+VITE_SERVER_URL=https://demugen3.onrender.com
+CORS_ALLOWED_ORIGINS=https://demugen3.onrender.com,https://www.demugen3.onrender.com
 ```
 
 ### Step 4: Install Dependencies and Build

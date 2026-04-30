@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: demugen3
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @mugen/client build
+    startCommand: pnpm --filter @mugen/server exec tsx src/server.ts
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=384
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://demugen3.onrender.com,https://www.demugen3.onrender.com

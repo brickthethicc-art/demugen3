@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "dev:local": "PORT=6173 tsx watch src/server.ts",
     "dev:beta": "PORT=6174 tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "tsx src/server.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@mugen/shared": "workspace:*",
+    "@fastify/static": "^6.12.0",
     "fastify": "^4.28.0",
     "socket.io": "^4.7.0",
     "@fastify/cors": "^9.0.0"
