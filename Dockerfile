@@ -16,7 +16,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages ./packages
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --allow-build=esbuild
 
 # Build frontend assets only (server runs via tsx at runtime)
 RUN pnpm --filter @mugen/client exec vite build
@@ -37,7 +37,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --from=builder /app/packages ./packages
 
 # Install dependencies for runtime (includes tsx used by server start command)
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --allow-build=esbuild
 
 # Create logs directory
 RUN mkdir -p /app/logs
