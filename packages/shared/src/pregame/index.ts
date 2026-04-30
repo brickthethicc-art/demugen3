@@ -34,7 +34,7 @@ export function lockTeam(team: PlayerTeam): Result<PlayerTeam> {
   const allUnits = [...team.activeUnits, ...team.reserveUnits];
   const validation = validateTeam(allUnits);
   if (!validation.ok) {
-    return { ok: false, error: validation.error };
+    return { ok: false, error: 'error' in validation ? validation.error : 'Team validation failed' };
   }
 
   return {

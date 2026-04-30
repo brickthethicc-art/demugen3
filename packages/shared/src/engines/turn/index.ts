@@ -514,7 +514,7 @@ export function deployReserve(
   const unitInstanceId = `${playerId}-${unitId}`;
   const placeResult = placeUnit(state.board, unitInstanceId, position);
   if (!placeResult.ok) {
-    return { ok: false, error: placeResult.error };
+    return { ok: false, error: 'error' in placeResult ? placeResult.error : 'Failed to place unit' };
   }
 
   const newInstance: UnitInstance = {
