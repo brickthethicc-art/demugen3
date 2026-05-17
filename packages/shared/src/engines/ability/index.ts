@@ -1,4 +1,5 @@
 import type { UnitInstance, Position } from '../../types/index.js';
+import type { AbilityDefinition } from '../../types/card.js';
 import { AbilityType, CombatModifierType } from '../../types/index.js';
 import type { Result } from '../../types/actions.js';
 import { chebyshevDistance } from '../../utils/position.js';
@@ -66,8 +67,20 @@ function isDamageAndModifierAbility(description: string): boolean {
   return desc.includes('deal') && desc.includes('damage') && desc.includes('ignore');
 }
 
-export function useAbility(
+/**
+ * Resolves a chosen ability for the unit. Performs all rule validation
+ * (already-used, position, range/LOS, target-type, self-target) and writes
+ * `hasUsedAbilityThisTurn` plus an `abilityCooldowns[ability.id]` entry
+ * when the chosen ability defines a positive cooldown.
+ *
+ * Prefer this signature for all new call sites. Existing callers using the
+ * legacy `useAbility(unit, target, walls)` form continue to work via the
+ * thin wrapper exported below, which resolves `unit.card.ability` as the
+ * primary ability for backward compatibility.
+ */
+export function useAbilityWithSelection(
   unit: UnitInstance,
+  ability: AbilityDefinition,
   target: UnitInstance | null,
   walls: Position[] = []
 ): Result<AbilityResult> {
@@ -81,7 +94,6 @@ export function useAbility(
     return { ok: false, error: 'Unit must be on the board to use ability' };
   }
 
-  const ability = unit.card.ability;
   const isSelfTarget = isSelfTargetAbility(ability.abilityType, ability.description);
   const isAdjacent = isAdjacentTargetAbility(ability.description);
   const selfDamage = extractSelfDamage(ability.description);
@@ -142,9 +154,16 @@ export function useAbility(
   }
 
   // STEP 4: Apply effect ONLY to valid target(s)
+  // Write cooldown for this ability if defined and positive.
+  const nextCooldowns: Record<string, number> = { ...(unit.abilityCooldowns ?? {}) };
+  if (ability.cooldown && ability.cooldown > 0) {
+    nextCooldowns[ability.id] = ability.cooldown;
+  }
+
   let updatedUnit: UnitInstance = {
     ...unit,
     hasUsedAbilityThisTurn: true,
+    abilityCooldowns: nextCooldowns,
   };
 
   // Apply ability effect to target
@@ -253,6 +272,20 @@ export function useAbility(
   }
 
   // STEP 6: Update game state (health, status, etc.)
+  // Re-apply ability bookkeeping after self-target branches that spread `target`
+  // (which is the original `unit`) and would otherwise drop these fields.
+  updatedUnit = {
+    ...updatedUnit,
+    hasUsedAbilityThisTurn: true,
+    abilityCooldowns: nextCooldowns,
+  };
+  if (isSelfTarget && updatedTarget) {
+    updatedTarget = {
+      ...updatedTarget,
+      hasUsedAbilityThisTurn: true,
+      abilityCooldowns: nextCooldowns,
+    };
+  }
   return {
     ok: true,
     value: {
@@ -261,6 +294,19 @@ export function useAbility(
       lifeCost: 0,
     },
   };
+}
+
+/**
+ * Backward-compatible wrapper that resolves the unit's primary
+ * `card.ability` and delegates to `useAbilityWithSelection`. Existing
+ * call sites and tests continue to work unchanged.
+ */
+export function useAbility(
+  unit: UnitInstance,
+  target: UnitInstance | null,
+  walls: Position[] = []
+): Result<AbilityResult> {
+  return useAbilityWithSelection(unit, unit.card.ability, target, walls);
 }
 
 export function resetAbilityUsage(units: UnitInstance[]): UnitInstance[] {
@@ -281,13 +327,19 @@ export function getAbilityTargets(
   unit: UnitInstance,
   allUnits: UnitInstance[],
   ownerId: string,
-  walls: Position[] = []
+  walls: Position[] = [],
+  ability?: AbilityDefinition,
 ): AbilityTarget[] {
   if (!unit.position) return [];
   if (unit.hasUsedAbilityThisTurn) return [];
 
-  const abilityType = unit.card.ability.abilityType;
-  const abilityDescription = unit.card.ability.description;
+  const resolvedAbility = ability ?? unit.card.ability;
+  // Per-ability cooldown: a positive remaining cooldown disables targeting.
+  const cd = unit.abilityCooldowns?.[resolvedAbility.id];
+  if (cd && cd > 0) return [];
+
+  const abilityType = resolvedAbility.abilityType;
+  const abilityDescription = resolvedAbility.description;
   const isSelfTarget = isSelfTargetAbility(abilityType, abilityDescription);
   const isAdjacent = isAdjacentTargetAbility(abilityDescription);
 

@@ -11,6 +11,19 @@ import { rateLimit } from './middleware/rate-limit.js';
 const DEFAULT_PORT = 5174;
 const CLIENT_DIST_PATH = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../client/dist');
 
+function getConfiguredPort(): number {
+  const portArgIndex = process.argv.findIndex((arg) => arg === '--port' || arg === '-p');
+  if (portArgIndex >= 0) {
+    const rawArgPort = process.argv[portArgIndex + 1];
+    const parsedArgPort = Number.parseInt(rawArgPort ?? '', 10);
+    if (Number.isFinite(parsedArgPort)) {
+      return parsedArgPort;
+    }
+  }
+
+  return parseInt(process.env['PORT'] ?? String(DEFAULT_PORT), 10);
+}
+
 function getCorsOrigins(): string | string[] {
   const allowedOrigins = process.env['CORS_ALLOWED_ORIGINS'];
   if (!allowedOrigins) {
@@ -110,7 +123,7 @@ export async function createServer(port: number = DEFAULT_PORT) {
 }
 
 export async function startServer() {
-  const port = parseInt(process.env['PORT'] ?? String(DEFAULT_PORT), 10);
+  const port = getConfiguredPort();
   const server = await createServer(port);
   const { fastify, io } = server;
 

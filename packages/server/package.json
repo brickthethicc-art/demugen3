@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "dev:local": "PORT=6173 tsx watch src/server.ts",
-    "dev:beta": "PORT=6174 tsx watch src/server.ts",
+    "dev:local": "tsx watch src/server.ts --port 6173",
+    "dev:beta": "tsx watch src/server.ts --port 6174",
     "start": "tsx src/server.ts",
     "test": "vitest run",
     "test:watch": "vitest",

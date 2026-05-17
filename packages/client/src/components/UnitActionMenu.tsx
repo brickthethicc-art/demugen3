@@ -1,13 +1,19 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useGameStore } from '../store/game-store.js';
 import { useGameActions } from '../hooks/useGameActions.js';
 import { TurnPhase } from '@mugen/shared';
+import type { AbilityDefinition, UnitCard } from '@mugen/shared';
 import { getValidMoves } from '@mugen/shared/src/engines/board/index.js';
-import { getAbilityTargets } from '@mugen/shared/src/engines/ability/index.js';
+import { getAbilityTargets, isSelfTargetAbility } from '@mugen/shared/src/engines/ability/index.js';
 import { getAttackTargets } from '@mugen/shared/src/engines/combat/index.js';
 import { ArrowRight, Sword, Zap } from 'lucide-react';
 
-const CELL_SIZE = 32;
+function getUnitAbilities(card: UnitCard): AbilityDefinition[] {
+  return card.abilities && card.abilities.length > 0 ? card.abilities : [card.ability];
+}
+
+const CELL_SIZE = 23.4;
 const MENU_WIDTH = 160;
 const MENU_OFFSET = 8;
 
@@ -25,7 +31,7 @@ export function UnitActionMenu() {
   }));
   const { sendAbility } = useGameActions();
   const { isMyTurn } = useGameActions();
-  const { enterMoveMode, exitMoveMode, hideMenuDuringMove, showMenuDuringMove, setValidMoves, clearValidMoves, selectUnit, enterAbilityMode, exitAbilityMode, setAbilityTargets, clearAbilityTargets, enterAttackMode, exitAttackMode, setAttackTargets, clearAttackTargets } = useGameStore();
+  const { enterMoveMode, exitMoveMode, hideMenuDuringMove, showMenuDuringMove, setValidMoves, clearValidMoves, selectUnit, enterAbilityMode, exitAbilityMode, setAbilityTargets, clearAbilityTargets, setSelectedAbilityId, enterAttackMode, exitAttackMode, setAttackTargets, clearAttackTargets } = useGameStore();
 
   // Find the selected unit (scoped to local player to avoid card ID collisions across players)
   const selectedUnit = useMemo(() => {
@@ -44,22 +50,42 @@ export function UnitActionMenu() {
   const canAttack = gameState?.turnPhase === TurnPhase.ATTACK && !selectedUnit?.hasAttackedThisTurn;
   const canUseAbility = gameState?.turnPhase === TurnPhase.ABILITY && !selectedUnit?.hasUsedAbilityThisTurn;
 
-  // Compute menu position: to the LEFT of the unit's cell
+  // Track the GameBoard root's viewport rect so the menu (portaled to body) can be
+  // positioned relative to the board while rendering above all other UI layers.
+  const [boardRect, setBoardRect] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    const update = () => {
+      const el = document.querySelector('[data-game-board-root="true"]') as HTMLElement | null;
+      setBoardRect(el ? el.getBoundingClientRect() : null);
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    const interval = window.setInterval(update, 250);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+      window.clearInterval(interval);
+    };
+  }, [selectedUnitId]);
+
+  // Compute menu position: to the LEFT of the unit's cell, in viewport coordinates.
   const unitPos = selectedUnit?.position;
-  const menuStyle: React.CSSProperties = unitPos
+  const MENU_Z_INDEX = 12000;
+  const menuStyle: React.CSSProperties = unitPos && boardRect
     ? {
-        position: 'absolute',
-        left: unitPos.x * CELL_SIZE - MENU_WIDTH - MENU_OFFSET,
-        top: unitPos.y * CELL_SIZE,
+        position: 'fixed',
+        left: boardRect.left + unitPos.x * CELL_SIZE - MENU_WIDTH - MENU_OFFSET,
+        top: boardRect.top + unitPos.y * CELL_SIZE,
         width: MENU_WIDTH,
-        zIndex: 50,
+        zIndex: MENU_Z_INDEX,
       }
     : {
         position: 'fixed',
         top: '50%',
         left: '50%',
         transform: 'translate(-50%, -50%)',
-        zIndex: 50,
+        zIndex: MENU_Z_INDEX,
       };
 
   // Pre-compute whether valid moves exist for disabling the Move button
@@ -69,13 +95,31 @@ export function UnitActionMenu() {
     return moves.length > 0;
   }, [isMovePhase, hasMoved, unitPos, gameState, selectedUnit]);
 
-  // Pre-compute valid ability targets for disabling the Ability button
-  const validAbilityTargets = useMemo(() => {
-    if (!canUseAbility || !gameState || !selectedUnit || !playerId) return [];
-    const allUnits = gameState.players.flatMap(p => p.units);
-    return getAbilityTargets(selectedUnit, allUnits, playerId, gameState.walls);
-  }, [canUseAbility, gameState, selectedUnit, playerId]);
-  const hasAbilityTargets = validAbilityTargets.length > 0;
+  // Resolve the unit's abilities (multi-ability support with single-ability fallback).
+  const unitAbilities: AbilityDefinition[] = useMemo(
+    () => (selectedUnit ? getUnitAbilities(selectedUnit.card) : []),
+    [selectedUnit]
+  );
+
+  // Pre-compute valid targets per ability so each button can be independently
+  // disabled when no targets exist or the ability is on cooldown.
+  const abilityViews = useMemo(() => {
+    if (!canUseAbility || !gameState || !selectedUnit || !playerId) {
+      return [] as Array<{
+        ability: AbilityDefinition;
+        targets: ReturnType<typeof getAbilityTargets>;
+        isSelfTarget: boolean;
+        cooldown: number;
+      }>;
+    }
+    const allUnits = gameState.players.flatMap((p) => p.units);
+    return unitAbilities.map((ability) => {
+      const isSelf = isSelfTargetAbility(ability.abilityType, ability.description);
+      const targets = getAbilityTargets(selectedUnit, allUnits, playerId, gameState.walls, ability);
+      const cooldown = selectedUnit.abilityCooldowns?.[ability.id] ?? 0;
+      return { ability, targets, isSelfTarget: isSelf, cooldown };
+    });
+  }, [canUseAbility, gameState, selectedUnit, playerId, unitAbilities]);
 
   // Pre-compute valid attack targets for disabling the Attack button
   const validAttackTargets = useMemo(() => {
@@ -128,25 +172,17 @@ export function UnitActionMenu() {
     hideMenuDuringMove();
   };
 
-  const handleAbility = () => {
+  const handleAbility = (
+    ability: AbilityDefinition,
+    targets: ReturnType<typeof getAbilityTargets>,
+    isSelfTarget: boolean,
+  ) => {
     if (!selectedUnit || !gameState || !playerId) return;
     if (selectedUnit.hasUsedAbilityThisTurn) return;
 
-    // Compute valid ability targets
-    const allUnits = gameState.players.flatMap(p => p.units);
-    const targets = getAbilityTargets(selectedUnit, allUnits, playerId, gameState.walls);
-
-    // Check if this is a self-target ability
-    const abilityType = selectedUnit.card.ability.abilityType;
-    const abilityDescription = selectedUnit.card.ability.description;
-    const isSelfTarget = abilityType === 'BUFF' && 
-      abilityDescription.toLowerCase().includes('gain') && 
-      !abilityDescription.toLowerCase().includes('ally') && 
-      !abilityDescription.toLowerCase().includes('adjacent');
-
-    // Self-target abilities activate directly without targeting mode
+    // Self-target abilities activate directly without entering targeting mode.
     if (isSelfTarget) {
-      sendAbility(selectedUnit.card.id, undefined, undefined);
+      sendAbility(selectedUnit.card.id, ability.id, undefined, undefined);
       selectUnit(null);
       clearValidMoves();
       exitMoveMode();
@@ -156,9 +192,10 @@ export function UnitActionMenu() {
 
     if (targets.length === 0) return;
 
-    // Enter ability targeting mode
+    // Enter ability targeting mode for the chosen ability.
     clearValidMoves();
     exitMoveMode();
+    setSelectedAbilityId(ability.id);
     setAbilityTargets(targets);
     enterAbilityMode();
     hideMenuDuringMove();
@@ -178,7 +215,7 @@ export function UnitActionMenu() {
   // Move button is always shown in MOVE phase, but disabled when already moved or no valid moves
   const moveDisabled = hasMoved || !hasValidMoves;
 
-  return (
+  return createPortal(
     <div
       style={menuStyle}
       className="bg-mugen-surface border border-white/10 rounded-xl shadow-2xl p-3 pointer-events-auto"
@@ -229,28 +266,40 @@ export function UnitActionMenu() {
           </div>
         )}
 
-        {canUseAbility && (
-          <div className="flex flex-col gap-1">
-            <button
-              onClick={handleAbility}
-              disabled={!hasAbilityTargets}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition w-full ${
-                !hasAbilityTargets
-                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                  : 'bg-mugen-gold hover:bg-mugen-gold/80 text-black cursor-pointer'
-              }`}
-            >
-              <Zap size={14} />
-              {selectedUnit.card.ability.name}
-            </button>
-            <div className="text-xs text-gray-400 px-1">
-              {selectedUnit.card.ability.description}
+        {canUseAbility && abilityViews.map(({ ability, targets, isSelfTarget, cooldown }) => {
+          const onCooldown = cooldown > 0;
+          const noTargets = !isSelfTarget && targets.length === 0;
+          const disabled = onCooldown || noTargets;
+          return (
+            <div key={ability.id} className="flex flex-col gap-1">
+              <button
+                onClick={() => handleAbility(ability, targets, isSelfTarget)}
+                disabled={disabled}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition w-full ${
+                  disabled
+                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    : 'bg-mugen-gold hover:bg-mugen-gold/80 text-black cursor-pointer'
+                }`}
+              >
+                <Zap size={14} />
+                <span className="flex-1 text-left">{ability.name}</span>
+                {onCooldown && (
+                  <span className="text-[10px] font-bold bg-black/40 text-white rounded px-1.5 py-0.5">
+                    {cooldown}t
+                  </span>
+                )}
+              </button>
+              {onCooldown && (
+                <div className="text-xs text-mugen-danger px-1">
+                  On cooldown ({cooldown} {cooldown === 1 ? 'turn' : 'turns'})
+                </div>
+              )}
+              {!onCooldown && noTargets && (
+                <div className="text-xs text-mugen-danger px-1">No valid targets in range</div>
+              )}
             </div>
-            {!hasAbilityTargets && (
-              <div className="text-xs text-mugen-danger px-1">No valid targets in range</div>
-            )}
-          </div>
-        )}
+          );
+        })}
 
         <button
           onClick={handleClose}
@@ -270,6 +319,7 @@ export function UnitActionMenu() {
           Click a highlighted unit to use ability
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

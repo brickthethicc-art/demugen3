@@ -141,18 +141,27 @@ export function setReady(ready: boolean): void {
   socket?.emit('set_ready', { ready });
 }
 
+export function leaveLobby(): void {
+  socket?.emit('leave_lobby');
+}
+
 export function setSelectedDeck(deck: any[]): void {
+  pendingDeck = deck;
+
   if (!socket) {
-    pendingDeck = deck;
     return;
   }
   
   if (!socket.connected) {
-    pendingDeck = deck;
+    return;
+  }
+
+  const store = useGameStore.getState();
+  if (!store.lobbyCode) {
     return;
   }
   
-  socket.emit('set_selected_deck', { deck });
+  flushPendingDeck();
 }
 
 export function startGame(): void {

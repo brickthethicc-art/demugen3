@@ -6,7 +6,8 @@ export default defineConfig(({ mode }) => {
   const envRoot = resolve(process.cwd(), '../../');
   const env = loadEnv(mode, envRoot, '');
   const devPort = Number(env['VITE_DEV_PORT'] || 5173);
-  const backendPort = Number(env['VITE_BACKEND_PORT'] || 5174);
+  const defaultBackendPort = mode === 'localdev' ? 6173 : 5174;
+  const backendPort = Number(env['VITE_BACKEND_PORT'] || defaultBackendPort);
 
   return {
     plugins: [react()],

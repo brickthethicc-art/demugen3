@@ -10,7 +10,7 @@ RUN npm install -g pnpm
 WORKDIR /app
 
 # Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Copy packages
 COPY packages ./packages
@@ -18,8 +18,8 @@ COPY packages ./packages
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Build frontend assets only (server runs via tsx at runtime)
-RUN pnpm --filter @mugen/client exec vite build
+# Build all packages
+RUN pnpm build
 
 # Production stage
 FROM node:20-alpine AS production
@@ -31,27 +31,27 @@ RUN npm install -g pnpm
 WORKDIR /app
 
 # Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Copy built packages
 COPY --from=builder /app/packages ./packages
 
-# Install dependencies for runtime (includes tsx used by server start command)
-RUN pnpm install --frozen-lockfile
+# Install production dependencies only
+RUN pnpm install --prod --frozen-lockfile
 
 # Create logs directory
 RUN mkdir -p /app/logs
 
 # Set environment variables
 ENV NODE_ENV=production
-ENV PORT=5174
+ENV PORT=3001
 
 # Expose port
-EXPOSE 5174
+EXPOSE 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5174/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start server
-CMD ["pnpm", "--filter", "@mugen/server", "exec", "tsx", "src/server.ts"]
+CMD ["node", "packages/server/dist/server.js"]

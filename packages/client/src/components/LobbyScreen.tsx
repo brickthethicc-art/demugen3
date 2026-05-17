@@ -112,7 +112,7 @@ export function LobbyScreen() {
   };
 
   const handleLeaveLobby = () => {
-    network.disconnect();
+    network.leaveLobby();
     setLobbyCode(null);
     setLobbyPlayers([]);
     setScreen('main-menu');

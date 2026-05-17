@@ -1,5 +1,37 @@
-import { CardType, AbilityType } from '@mugen/shared';
-import type { UnitCard, SorceryCard, Card } from '@mugen/shared';
+import {
+  CardType,
+  AbilityType,
+  createDefaultCardFramework,
+  DEFAULT_STAT_DISPLAY_ORDER,
+} from '@mugen/shared';
+import type {
+  AbilityDefinition,
+  UnitCard,
+  SorceryCard,
+  Card,
+  CardFramework,
+  StatDisplayField,
+} from '@mugen/shared';
+
+function resolveFramework(
+  cardType: CardType,
+  cost: number,
+  frameworkOverride?: Partial<CardFramework>
+): CardFramework {
+  const isLegendaryByCost =
+    (cardType === CardType.UNIT && cost >= 7)
+    || (cardType === CardType.SORCERY && cost >= 5);
+
+  const automaticOverrides: Partial<CardFramework> = isLegendaryByCost
+    ? { cardFrameStyle: 'legendary', hasSpecialBorder: true }
+    : {};
+
+  return {
+    ...createDefaultCardFramework(),
+    ...automaticOverrides,
+    ...frameworkOverride,
+  };
+}
 
 function unit(
   id: string,
@@ -13,7 +45,10 @@ function unit(
   abilityName: string,
   abilityDesc: string,
   abilityCost: number,
-  abilityType: AbilityType
+  abilityType: AbilityType,
+  frameworkOverride?: Partial<CardFramework>,
+  statDisplayOrder?: StatDisplayField[],
+  abilityIconId?: string,
 ): UnitCard {
   return {
     id,
@@ -32,6 +67,40 @@ function unit(
       cost: abilityCost,
       abilityType,
     },
+    framework: resolveFramework(CardType.UNIT, cost, frameworkOverride),
+    statDisplayOrder: statDisplayOrder ?? [...DEFAULT_STAT_DISPLAY_ORDER],
+    abilityIconId,
+  };
+}
+
+function multiAbilityUnit(
+  id: string,
+  name: string,
+  cost: number,
+  hp: number,
+  atk: number,
+  movement: number,
+  range: number,
+  abilities: [AbilityDefinition, ...AbilityDefinition[]],
+  frameworkOverride?: Partial<CardFramework>,
+  statDisplayOrder?: StatDisplayField[],
+  abilityIconId?: string,
+): UnitCard {
+  return {
+    id,
+    name,
+    cardType: CardType.UNIT,
+    hp,
+    maxHp: hp,
+    atk,
+    movement,
+    range,
+    cost,
+    ability: abilities[0],
+    abilities,
+    framework: resolveFramework(CardType.UNIT, cost, frameworkOverride),
+    statDisplayOrder: statDisplayOrder ?? [...DEFAULT_STAT_DISPLAY_ORDER],
+    abilityIconId,
   };
 }
 
@@ -39,9 +108,21 @@ function sorcery(
   id: string,
   name: string,
   cost: number,
-  effect: string
+  effect: string,
+  frameworkOverride?: Partial<CardFramework>,
+  effectIconId?: string,
+  targetIndicator?: string,
 ): SorceryCard {
-  return { id, name, cardType: CardType.SORCERY, cost, effect };
+  return {
+    id,
+    name,
+    cardType: CardType.SORCERY,
+    cost,
+    effect,
+    framework: resolveFramework(CardType.SORCERY, cost, frameworkOverride),
+    effectIconId,
+    targetIndicator,
+  };
 }
 
 // ── Unit Cards (42) ──────────────────────────────────────────────────
@@ -100,10 +181,46 @@ export const ALL_UNITS: UnitCard[] = [
   unit('u38', 'Shadow Monarch', 8, 12, 8, 2, 2, 'a38', 'Eclipse', 'Reduce target ATK by 2', 6, AbilityType.MODIFIER),
 
   // Extra utility units
-  unit('u39', 'Medic Fairy', 2, 3, 1, 2, 2, 'a39', 'Quick Heal', 'Heal 2 HP to target ally', 1, AbilityType.HEAL),
-  unit('u40', 'Battle Drummer', 3, 5, 2, 2, 1, 'a40', 'War Cry', 'Gain +2 ATK until end of turn', 2, AbilityType.BUFF),
-  unit('u41', 'Hex Witch', 4, 5, 3, 2, 3, 'a41', 'Curse', 'Reduce target ATK by 2 for 1 turn', 2, AbilityType.MODIFIER),
-  unit('u42', 'Mirror Knight', 5, 9, 4, 2, 1, 'a42', 'Reflect', 'Gain +3 ATK until end of turn', 3, AbilityType.BUFF),
+  unit('u39', 'Medic Fairy', 2, 3, 1, 2, 2, 'a39', 'Quick Heal', 'Heal 2 HP to target ally', 1, AbilityType.HEAL, { borderTheme: 'utility-support' }),
+  unit('u40', 'Battle Drummer', 3, 5, 2, 2, 1, 'a40', 'War Cry', 'Gain +2 ATK until end of turn', 2, AbilityType.BUFF, { borderTheme: 'utility-support' }),
+  unit('u41', 'Hex Witch', 4, 5, 3, 2, 3, 'a41', 'Curse', 'Reduce target ATK by 2 for 1 turn', 2, AbilityType.MODIFIER, { borderTheme: 'utility-control' }),
+  unit('u42', 'Mirror Knight', 5, 9, 4, 2, 1, 'a42', 'Reflect', 'Gain +3 ATK until end of turn', 3, AbilityType.BUFF, { borderTheme: 'utility-defense' }),
+  multiAbilityUnit(
+    'u43',
+    'Zeus',
+    10,
+    18,
+    7,
+    4,
+    5,
+    [
+      {
+        id: 'a43-1',
+        name: 'Thunderbringer',
+        description: 'Choose up to 2 enemies within 5 tiles. Deal 4 damage to each target. Targets hit cannot gain buffs until the end of their next turn.',
+        cost: 3,
+        cooldown: 3,
+        abilityType: AbilityType.DAMAGE,
+      },
+      {
+        id: 'a43-2',
+        name: 'Wrath of Olympus',
+        description: 'All enemy creatures within 4 tiles suffer 3 damage. Non-flying enemies are pushed back 1 tile. Flying creatures become stunned for 1 turn instead.',
+        cost: 5,
+        cooldown: 5,
+        abilityType: AbilityType.MODIFIER,
+      },
+      {
+        id: 'a43-3',
+        name: 'Divine Decree',
+        description: 'Choose one enemy unit on the battlefield. That creature\'s abilities are disabled until the end of its next turn. If the target is below half HP, deal an additional 3 damage.',
+        cost: 6,
+        cooldown: 6,
+        abilityType: AbilityType.MODIFIER,
+      },
+    ],
+    { customImage: '/assets/zeus.png', textLayout: 'compact' },
+  ),
 ];
 
 // ── Sorcery Cards (22) ──────────────────────────────────────────────
@@ -112,7 +229,7 @@ export const ALL_SORCERIES: SorceryCard[] = [
   // Cost 1: Minor effects
   sorcery('s01', 'Quick Strike', 1, 'Deal 2 damage to target unit'),
   sorcery('s02', 'Minor Heal', 1, 'Heal 2 HP to target unit'),
-  sorcery('s03', 'Scout Ahead', 1, 'Reveal a 3x3 area on the board'),
+  sorcery('s03', 'Scout Ahead', 1, 'Reveal a 3x3 area on the board', { borderTheme: 'utility-vision' }),
 
   // Cost 2: Utility
   sorcery('s04', 'Fireball', 2, 'Deal 3 damage to target unit'),
@@ -124,7 +241,7 @@ export const ALL_SORCERIES: SorceryCard[] = [
   sorcery('s08', 'Chain Lightning', 3, 'Deal 2 damage to up to 3 adjacent units'),
   sorcery('s09', 'Mass Heal', 3, 'Heal 2 HP to all friendly units'),
   sorcery('s10', 'Fortification', 3, 'All friendly units gain +1 ATK this turn'),
-  sorcery('s11', 'Displacement', 3, 'Move target unit up to 3 spaces'),
+  sorcery('s11', 'Displacement', 3, 'Move target unit up to 3 spaces', { borderTheme: 'utility-control' }),
 
   // Cost 4: Strong effects
   sorcery('s12', 'Meteor Strike', 4, 'Deal 4 damage to target and 2 to adjacent units'),

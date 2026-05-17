@@ -13,9 +13,25 @@ import { VisibilityEngine } from '@mugen/shared';
 
 
 
-const CELL_SIZE = 32;
+const CELL_SIZE = 23.4;
 
-const GRID_COLOR = 0xffffff;
+const HUD_BOARD_SIZE_PX = 598;
+
+const HUD_EDGE_CARD_HEIGHT_PX = 139;
+
+const HUD_BOARD_EDGE_OFFSET_PX = 41;
+
+const HUD_TOP_GROUP_SHIFT_DOWN_PX = 38;
+
+const HUD_BOTTOM_EDGE_INSET_PX = 8;
+
+const HUD_BOTTOM_GROUP_LIFT_PX = 24;
+
+const GRID_VERTICAL_SHIFT_PX = 30;
+
+const BOARD_DEPTH_BASE = 2000;
+
+const GRID_COLOR = 0xfffaf2;
 
 const GRID_LINE_COLOR = 0x000000;
 
@@ -77,6 +93,7 @@ const ATTACK_SLASH_DELAY_MS = 140;
 
 const ATTACK_DAMAGE_NUMBER_DELAY_MS = 260;
 
+const getBoardDepth = (offset: number): number => BOARD_DEPTH_BASE + offset;
 
 
 // Map player colors to Phaser color numbers
@@ -189,6 +206,14 @@ export class GameScene extends Phaser.Scene {
 
   private activeOverlayElements: Set<HTMLElement> = new Set();
 
+  private boardWidth = 0;
+
+  private boardHeight = 0;
+
+  private boardOriginX = 0;
+
+  private boardOriginY = 0;
+
   private readonly particleTextureKey = 'unit-effect-particle';
 
 
@@ -203,29 +228,35 @@ export class GameScene extends Phaser.Scene {
 
   create() {
     this.cellGraphics = this.add.graphics();
+    this.cellGraphics.setDepth(getBoardDepth(0));
 
     this.highlightGraphics = this.add.graphics();
+    this.highlightGraphics.setDepth(getBoardDepth(10));
 
     this.hoverHighlightGraphics = this.add.graphics();
+    this.hoverHighlightGraphics.setDepth(getBoardDepth(20));
 
     this.abilityHighlightGraphics = this.add.graphics();
-    this.abilityHighlightGraphics.setDepth(100);
+    this.abilityHighlightGraphics.setDepth(getBoardDepth(30));
 
     this.attackHighlightGraphics = this.add.graphics();
-    this.attackHighlightGraphics.setDepth(100);
+    this.attackHighlightGraphics.setDepth(getBoardDepth(30));
 
     this.deploymentHighlightGraphics = this.add.graphics();
-    this.deploymentHighlightGraphics.setDepth(100);
+    this.deploymentHighlightGraphics.setDepth(getBoardDepth(30));
 
     this.sorceryHighlightGraphics = this.add.graphics();
-    this.sorceryHighlightGraphics.setDepth(100);
+    this.sorceryHighlightGraphics.setDepth(getBoardDepth(30));
 
     this.sorceryFirstTargetGraphics = this.add.graphics();
-    this.sorceryFirstTargetGraphics.setDepth(101);
+    this.sorceryFirstTargetGraphics.setDepth(getBoardDepth(31));
 
     this.ensureParticleTexture();
 
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.handleSceneResize, this);
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.handleSceneResize, this);
       this.cleanupOverlayElements();
     });
 
@@ -241,11 +272,7 @@ export class GameScene extends Phaser.Scene {
 
       const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
 
-      const gridX = Math.floor(worldPoint.x / CELL_SIZE);
-
-      const gridY = Math.floor(worldPoint.y / CELL_SIZE);
-
-      const pos = { x: gridX, y: gridY };
+      const pos = this.worldToGrid(worldPoint.x, worldPoint.y);
 
       
 
@@ -358,13 +385,9 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
 
-      // Use raw pointer coordinates and let Phaser handle scaling internally
+      const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
 
-      const gridX = Math.floor(pointer.x / CELL_SIZE);
-
-      const gridY = Math.floor(pointer.y / CELL_SIZE);
-
-      this.handleCellHover({ x: gridX, y: gridY });
+      this.handleCellHover(this.worldToGrid(worldPoint.x, worldPoint.y));
 
     });
 
@@ -425,6 +448,10 @@ export class GameScene extends Phaser.Scene {
 
   }
 
+  private handleSceneResize() {
+    this.updateFromStore();
+  }
+
 
 
   private updateFromStore() {
@@ -435,6 +462,10 @@ export class GameScene extends Phaser.Scene {
     }
 
 
+
+    this.boardWidth = state.board.width;
+    this.boardHeight = state.board.height;
+    this.recalculateBoardOrigin();
 
     this.drawGrid(state.board.width, state.board.height, state.walls);
 
@@ -469,36 +500,34 @@ export class GameScene extends Phaser.Scene {
     for (let y = 0; y < height; y++) {
 
       for (let x = 0; x < width; x++) {
-
-        const px = x * CELL_SIZE;
-
-        const py = y * CELL_SIZE;
-
-
-
+        const outerCorners = this.getProjectedCellCorners(x, y, width, height);
         const isWall = wallSet.has(`${x},${y}`);
         if (isWall) {
-          this.cellGraphics.fillStyle(WALL_BASE_COLOR, 1);
-          this.cellGraphics.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+          this.drawProjectedPolygon(
+            this.cellGraphics,
+            outerCorners,
+            { color: WALL_BASE_COLOR, alpha: 1 },
+            { width: 1, color: GRID_LINE_COLOR, alpha: 0.85 },
+          );
 
-          this.cellGraphics.fillStyle(WALL_BRICK_COLOR, 0.95);
-          this.cellGraphics.fillRect(px + 3, py + 4, CELL_SIZE - 6, 7);
-          this.cellGraphics.fillRect(px + 2, py + 14, CELL_SIZE - 8, 7);
-          this.cellGraphics.fillRect(px + 5, py + 23, CELL_SIZE - 7, 6);
+          const innerWall = this.getProjectedCellCorners(x, y, width, height, 3);
+          this.drawProjectedPolygon(this.cellGraphics, innerWall, { color: WALL_BRICK_COLOR, alpha: 0.92 });
 
           this.cellGraphics.lineStyle(1, WALL_MORTAR_COLOR, 0.9);
-          this.cellGraphics.strokeLineShape(new Phaser.Geom.Line(px + 3, py + 12, px + CELL_SIZE - 3, py + 12));
-          this.cellGraphics.strokeLineShape(new Phaser.Geom.Line(px + 3, py + 22, px + CELL_SIZE - 3, py + 22));
+          const mortarOneStart = this.projectBoardPoint(x + 0.12, y + 0.36, width, height);
+          const mortarOneEnd = this.projectBoardPoint(x + 0.88, y + 0.36, width, height);
+          const mortarTwoStart = this.projectBoardPoint(x + 0.12, y + 0.68, width, height);
+          const mortarTwoEnd = this.projectBoardPoint(x + 0.88, y + 0.68, width, height);
+          this.cellGraphics.lineBetween(mortarOneStart.x, mortarOneStart.y, mortarOneEnd.x, mortarOneEnd.y);
+          this.cellGraphics.lineBetween(mortarTwoStart.x, mortarTwoStart.y, mortarTwoEnd.x, mortarTwoEnd.y);
         } else {
-          this.cellGraphics.fillStyle(GRID_COLOR, 0.9);
-          this.cellGraphics.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+          this.drawProjectedPolygon(
+            this.cellGraphics,
+            outerCorners,
+            { color: GRID_COLOR, alpha: 1 },
+            { width: 1, color: GRID_LINE_COLOR, alpha: 1 },
+          );
         }
-
-
-
-        this.cellGraphics.lineStyle(1, GRID_LINE_COLOR, 0.8);
-
-        this.cellGraphics.strokeRect(px, py, CELL_SIZE, CELL_SIZE);
 
       }
 
@@ -524,8 +553,7 @@ export class GameScene extends Phaser.Scene {
       const unitInstanceId = `${unit.ownerId}-${unit.card.id}`;
       activeVisibleUnitIds.add(unitInstanceId);
 
-      const targetX = unit.position.x * CELL_SIZE + CELL_SIZE / 2;
-      const targetY = unit.position.y * CELL_SIZE + CELL_SIZE / 2;
+      const { x: targetX, y: targetY } = this.gridToWorld(unit.position);
       const unitColor = getPlayerColor(unit.color);
       const deathExplosionColor = unit.color ? unitColor : undefined;
 
@@ -540,6 +568,8 @@ export class GameScene extends Phaser.Scene {
           this.playDeploymentSpawnAnimation(unitInstanceId, container, targetX, targetY, unitColor);
         }
       }
+
+      container.setDepth(getBoardDepth(80 + unit.position.y * 2));
 
       const previousUnit = this.previousBoardUnits.get(unitInstanceId);
       const hasMoved = Boolean(
@@ -1062,7 +1092,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(BLOOD_DROPLET_CLEANUP_MS, () => dropletsEmitter.destroy());
 
     const stain = this.add.circle(x, y, 2.5, BLOOD_STAIN_COLOR, 0.66);
-    stain.setDepth(285);
+    stain.setDepth(getBoardDepth(185));
 
     this.tweens.add({
       targets: stain,
@@ -1092,7 +1122,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(600, () => emitter.destroy());
 
     const ripple = this.add.circle(x, y, 3, color, 0.5);
-    ripple.setDepth(299);
+    ripple.setDepth(getBoardDepth(199));
 
     this.tweens.add({
       targets: ripple,
@@ -1114,7 +1144,7 @@ export class GameScene extends Phaser.Scene {
     const start = fromPos ? this.gridToWorld(fromPos) : { x: end.x, y: end.y - CELL_SIZE * 1.4 };
 
     const potion = this.add.circle(start.x, start.y, 4, color, 1);
-    potion.setDepth(300);
+    potion.setDepth(getBoardDepth(200));
     potion.setStrokeStyle(1, 0xffffff, 0.8);
 
     const travelDuration = Phaser.Math.Clamp(
@@ -1158,7 +1188,7 @@ export class GameScene extends Phaser.Scene {
 
   private emitShockwave(x: number, y: number, color: number, durationMs = 380) {
     const shockwave = this.add.graphics();
-    shockwave.setDepth(290);
+    shockwave.setDepth(getBoardDepth(190));
     shockwave.lineStyle(3, color, 0.8);
     shockwave.strokeCircle(x, y, 8);
 
@@ -1195,7 +1225,7 @@ export class GameScene extends Phaser.Scene {
     this.emitShockwave(x, y, primaryColor, DEATH_SHOCKWAVE_DURATION_MS);
 
     const core = this.add.circle(x, y, 9, 0xffffff, 0.95);
-    core.setDepth(300);
+    core.setDepth(getBoardDepth(200));
 
     this.tweens.add({
       targets: core,
@@ -1207,11 +1237,121 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private recalculateBoardOrigin() {
+    if (this.boardWidth <= 0 || this.boardHeight <= 0) {
+      this.boardOriginX = 0;
+      this.boardOriginY = 0;
+      return;
+    }
+
+    const camera = this.cameras.main;
+    const viewportCenterX = camera.width / 2;
+    const viewportCenterY = camera.height / 2;
+    const boardHalf = HUD_BOARD_SIZE_PX / 2;
+
+    const topReserveOffset = boardHalf + HUD_EDGE_CARD_HEIGHT_PX + HUD_BOARD_EDGE_OFFSET_PX;
+    const topCardGroupBottomEdge = viewportCenterY - topReserveOffset + HUD_TOP_GROUP_SHIFT_DOWN_PX + HUD_EDGE_CARD_HEIGHT_PX;
+
+    const bottomReserveOffset = boardHalf + HUD_BOARD_EDGE_OFFSET_PX - HUD_BOTTOM_EDGE_INSET_PX - HUD_BOTTOM_GROUP_LIFT_PX;
+    const bottomCardGroupTopEdge = viewportCenterY + bottomReserveOffset;
+
+    const targetGridCenterY = (topCardGroupBottomEdge + bottomCardGroupTopEdge) / 2;
+
+    const gridWidthPx = this.boardWidth * CELL_SIZE;
+    const gridHeightPx = this.boardHeight * CELL_SIZE;
+
+    this.boardOriginX = viewportCenterX - gridWidthPx / 2;
+    this.boardOriginY = targetGridCenterY - gridHeightPx / 2 - GRID_VERTICAL_SHIFT_PX;
+  }
+
   private gridToWorld(position: Position): { x: number; y: number } {
+    return this.projectBoardPoint(position.x + 0.5, position.y + 0.5);
+  }
+
+  private worldToGrid(worldX: number, worldY: number): Position {
+    if (this.boardWidth <= 0 || this.boardHeight <= 0) {
+      return { x: -1, y: -1 };
+    }
+
+    const gridX = Math.floor((worldX - this.boardOriginX) / CELL_SIZE);
+    const gridY = Math.floor((worldY - this.boardOriginY) / CELL_SIZE);
+
+    return { x: gridX, y: gridY };
+  }
+
+  private projectBoardPoint(
+    gridX: number,
+    gridY: number,
+    _boardWidth = this.boardWidth,
+    _boardHeight = this.boardHeight,
+  ): { x: number; y: number } {
     return {
-      x: position.x * CELL_SIZE + CELL_SIZE / 2,
-      y: position.y * CELL_SIZE + CELL_SIZE / 2,
+      x: this.boardOriginX + gridX * CELL_SIZE,
+      y: this.boardOriginY + gridY * CELL_SIZE,
     };
+  }
+
+  private getProjectedCellCorners(
+    x: number,
+    y: number,
+    boardWidth = this.boardWidth,
+    boardHeight = this.boardHeight,
+    insetPx = 0,
+  ): Phaser.Math.Vector2[] {
+    const insetRatio = Phaser.Math.Clamp(insetPx / CELL_SIZE, 0, 0.49);
+    const left = x + insetRatio;
+    const right = x + 1 - insetRatio;
+    const top = y + insetRatio;
+    const bottom = y + 1 - insetRatio;
+
+    const topLeft = this.projectBoardPoint(left, top, boardWidth, boardHeight);
+    const topRight = this.projectBoardPoint(right, top, boardWidth, boardHeight);
+    const bottomRight = this.projectBoardPoint(right, bottom, boardWidth, boardHeight);
+    const bottomLeft = this.projectBoardPoint(left, bottom, boardWidth, boardHeight);
+
+    return [
+      new Phaser.Math.Vector2(topLeft.x, topLeft.y),
+      new Phaser.Math.Vector2(topRight.x, topRight.y),
+      new Phaser.Math.Vector2(bottomRight.x, bottomRight.y),
+      new Phaser.Math.Vector2(bottomLeft.x, bottomLeft.y),
+    ];
+  }
+
+  private drawProjectedPolygon(
+    graphics: Phaser.GameObjects.Graphics,
+    corners: Phaser.Math.Vector2[],
+    fill?: { color: number; alpha: number },
+    stroke?: { width: number; color: number; alpha: number },
+  ) {
+    if (corners.length === 0) {
+      return;
+    }
+
+    if (fill) {
+      graphics.fillStyle(fill.color, fill.alpha);
+      graphics.fillPoints(corners, true);
+    }
+
+    if (!stroke || stroke.width <= 0) {
+      return;
+    }
+
+    const [firstCorner, ...remainingCorners] = corners;
+    if (!firstCorner) {
+      return;
+    }
+
+    graphics.lineStyle(stroke.width, stroke.color, stroke.alpha);
+    graphics.beginPath();
+    graphics.moveTo(firstCorner.x, firstCorner.y);
+    for (const corner of remainingCorners) {
+      if (!corner) {
+        continue;
+      }
+      graphics.lineTo(corner.x, corner.y);
+    }
+    graphics.closePath();
+    graphics.strokePath();
   }
 
   private showDamageNumber(unitPosition: Position, damage: number, isOverkill: boolean) {
@@ -1228,7 +1368,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     damageText.setOrigin(0.5);
-    damageText.setDepth(320);
+    damageText.setDepth(getBoardDepth(220));
 
     this.tweens.add({
       targets: damageText,
@@ -1263,7 +1403,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     healingText.setOrigin(0.5);
-    healingText.setDepth(320);
+    healingText.setDepth(getBoardDepth(220));
 
     const effects = this.getHealingEffects(unitId);
     const effectEntry = {} as HealingEffectEntry;
@@ -1335,7 +1475,7 @@ export class GameScene extends Phaser.Scene {
     const perpY = Math.cos(angle);
 
     const directionIndicator = this.add.graphics();
-    directionIndicator.setDepth(278);
+    directionIndicator.setDepth(getBoardDepth(178));
     directionIndicator.setAlpha(0);
 
     const indicatorEndT = 0.84;
@@ -1361,11 +1501,11 @@ export class GameScene extends Phaser.Scene {
     );
 
     const slash = this.add.graphics();
-    slash.setDepth(281);
+    slash.setDepth(getBoardDepth(181));
     slash.setAlpha(0);
 
     const slashGlow = this.add.graphics();
-    slashGlow.setDepth(280);
+    slashGlow.setDepth(getBoardDepth(180));
     slashGlow.setAlpha(0);
 
     const slashAngle = angle + Phaser.Math.DegToRad(18);
@@ -1408,11 +1548,11 @@ export class GameScene extends Phaser.Scene {
     );
 
     const impactRing = this.add.circle(end.x, end.y, 4, 0xfff1c2, 0.75);
-    impactRing.setDepth(282);
+    impactRing.setDepth(getBoardDepth(182));
     impactRing.setScale(0.5);
 
     const impactCore = this.add.circle(end.x + perpX * 1.5, end.y + perpY * 1.5, 3, 0xffffff, 0.9);
-    impactCore.setDepth(283);
+    impactCore.setDepth(getBoardDepth(183));
     impactCore.setScale(0.4);
 
     this.tweens.add({
@@ -1669,7 +1809,8 @@ export class GameScene extends Phaser.Scene {
 
     // Use actual unit color instead of hardcoded red
 
-    const square = this.add.rectangle(0, 0, CELL_SIZE - 2, CELL_SIZE - 2, color, 0.9);
+    const unitHeight = CELL_SIZE;
+    const square = this.add.rectangle(0, 0, CELL_SIZE - 2, unitHeight - 2, color, 0.9);
 
     square.setStrokeStyle(1, 0xffffff, 0.8);
 
@@ -1699,7 +1840,7 @@ export class GameScene extends Phaser.Scene {
 
     container.add([square, initial, hpBar]);
 
-    container.setSize(CELL_SIZE, CELL_SIZE);
+    container.setSize(CELL_SIZE, unitHeight);
 
     // Unit clicks are now handled globally at the grid level
 
@@ -1773,19 +1914,14 @@ export class GameScene extends Phaser.Scene {
 
     validMoves.forEach((pos) => {
 
-      const px = pos.x * CELL_SIZE;
+      const corners = this.getProjectedCellCorners(pos.x, pos.y, this.boardWidth, this.boardHeight, 2);
 
-      const py = pos.y * CELL_SIZE;
-
-
-
-      this.highlightGraphics!.fillStyle(HIGHLIGHT_COLOR, 0.25);
-
-      this.highlightGraphics!.fillRect(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-
-      this.highlightGraphics!.lineStyle(2, HIGHLIGHT_COLOR, 0.7);
-
-      this.highlightGraphics!.strokeRect(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+      this.drawProjectedPolygon(
+        this.highlightGraphics!,
+        corners,
+        { color: HIGHLIGHT_COLOR, alpha: 0.25 },
+        { width: 2, color: HIGHLIGHT_COLOR, alpha: 0.7 },
+      );
 
     });
 
@@ -1810,12 +1946,20 @@ export class GameScene extends Phaser.Scene {
 
     abilityTargets.forEach((target) => {
 
-      const px = target.position.x * CELL_SIZE;
-      const py = target.position.y * CELL_SIZE;
+      const corners = this.getProjectedCellCorners(
+        target.position.x,
+        target.position.y,
+        this.boardWidth,
+        this.boardHeight,
+        3,
+      );
 
-      // Draw thick white outline around the unit cell (no fill)
-      this.abilityHighlightGraphics!.lineStyle(3, ABILITY_HIGHLIGHT_COLOR, strokeAlpha);
-      this.abilityHighlightGraphics!.strokeRect(px + 3, py + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+      this.drawProjectedPolygon(
+        this.abilityHighlightGraphics!,
+        corners,
+        undefined,
+        { width: 3, color: ABILITY_HIGHLIGHT_COLOR, alpha: strokeAlpha },
+      );
 
     });
 
@@ -1841,16 +1985,20 @@ export class GameScene extends Phaser.Scene {
 
     attackTargets.forEach((target) => {
 
-      const px = target.position.x * CELL_SIZE;
-      const py = target.position.y * CELL_SIZE;
+      const corners = this.getProjectedCellCorners(
+        target.position.x,
+        target.position.y,
+        this.boardWidth,
+        this.boardHeight,
+        1,
+      );
 
-      // Red tinted fill so it's obvious
-      this.attackHighlightGraphics!.fillStyle(ATTACK_HIGHLIGHT_COLOR, fillAlpha);
-      this.attackHighlightGraphics!.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
-
-      // Thick red outline
-      this.attackHighlightGraphics!.lineStyle(4, ATTACK_HIGHLIGHT_COLOR, strokeAlpha);
-      this.attackHighlightGraphics!.strokeRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+      this.drawProjectedPolygon(
+        this.attackHighlightGraphics!,
+        corners,
+        { color: ATTACK_HIGHLIGHT_COLOR, alpha: fillAlpha },
+        { width: 4, color: ATTACK_HIGHLIGHT_COLOR, alpha: strokeAlpha },
+      );
 
     });
 
@@ -1872,16 +2020,14 @@ export class GameScene extends Phaser.Scene {
         const cell = gameState.board.cells[y]?.[x];
         const isWall = gameState.walls.some((wall) => wall.x === x && wall.y === y);
         if (cell && cell.occupantId === null && !isWall) {
-          const px = x * CELL_SIZE;
-          const py = y * CELL_SIZE;
+          const corners = this.getProjectedCellCorners(x, y, this.boardWidth, this.boardHeight, 1);
 
-          // Green tinted fill for deployment zones
-          this.deploymentHighlightGraphics.fillStyle(DEPLOYMENT_HIGHLIGHT_COLOR, 0.3);
-          this.deploymentHighlightGraphics.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
-
-          // Green outline
-          this.deploymentHighlightGraphics.lineStyle(2, DEPLOYMENT_HIGHLIGHT_COLOR, 0.8);
-          this.deploymentHighlightGraphics.strokeRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+          this.drawProjectedPolygon(
+            this.deploymentHighlightGraphics,
+            corners,
+            { color: DEPLOYMENT_HIGHLIGHT_COLOR, alpha: 0.3 },
+            { width: 2, color: DEPLOYMENT_HIGHLIGHT_COLOR, alpha: 0.8 },
+          );
         }
       }
     }
@@ -1911,12 +2057,14 @@ export class GameScene extends Phaser.Scene {
     const strokeAlpha = 0.6 + (wave * 0.5 + 0.5) * 0.4;
 
     validTargets.forEach((pos) => {
-      const px = pos.x * CELL_SIZE;
-      const py = pos.y * CELL_SIZE;
+      const corners = this.getProjectedCellCorners(pos.x, pos.y, this.boardWidth, this.boardHeight, 3);
 
-      // Draw thick white outline around the unit cell (no fill)
-      this.sorceryHighlightGraphics!.lineStyle(3, ABILITY_HIGHLIGHT_COLOR, strokeAlpha);
-      this.sorceryHighlightGraphics!.strokeRect(px + 3, py + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+      this.drawProjectedPolygon(
+        this.sorceryHighlightGraphics!,
+        corners,
+        undefined,
+        { width: 3, color: ABILITY_HIGHLIGHT_COLOR, alpha: strokeAlpha },
+      );
     });
   }
 
@@ -2016,16 +2164,14 @@ export class GameScene extends Phaser.Scene {
     if (!target || !target.unit.position) return;
 
     const pos = target.unit.position;
-    const px = pos.x * CELL_SIZE;
-    const py = pos.y * CELL_SIZE;
+    const corners = this.getProjectedCellCorners(pos.x, pos.y, this.boardWidth, this.boardHeight, 2);
 
-    // Draw a distinctive highlight for the first selected unit (gold/yellow)
-    this.sorceryFirstTargetGraphics.lineStyle(4, 0xf59e0b, 1);
-    this.sorceryFirstTargetGraphics.strokeRect(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-
-    // Add a fill to make it more visible
-    this.sorceryFirstTargetGraphics.fillStyle(0xf59e0b, 0.3);
-    this.sorceryFirstTargetGraphics.fillRect(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+    this.drawProjectedPolygon(
+      this.sorceryFirstTargetGraphics,
+      corners,
+      { color: 0xf59e0b, alpha: 0.3 },
+      { width: 4, color: 0xf59e0b, alpha: 1 },
+    );
   }
 
 
@@ -2034,7 +2180,7 @@ export class GameScene extends Phaser.Scene {
 
     const store = useGameStore.getState();
 
-    const { validMoves, selectedUnitId, moveModeActive, abilityModeActive, abilityTargets, attackModeActive, attackTargets, gameState, deploymentModeActive, selectedBenchUnit } = store;
+    const { validMoves, selectedUnitId, moveModeActive, abilityModeActive, abilityTargets, selectedAbilityId, attackModeActive, attackTargets, gameState, deploymentModeActive, selectedBenchUnit } = store;
 
     // Handle deployment mode click
     if (deploymentModeActive && selectedBenchUnit && gameState) {
@@ -2078,6 +2224,8 @@ export class GameScene extends Phaser.Scene {
             type: IntentType.USE_ABILITY,
 
             unitId: selectedUnitId,
+
+            abilityId: selectedAbilityId ?? undefined,
 
             targetId: target.unitId,
 
@@ -2473,15 +2621,14 @@ export class GameScene extends Phaser.Scene {
 
 
 
-    const px = pos.x * CELL_SIZE;
+    const corners = this.getProjectedCellCorners(pos.x, pos.y, this.boardWidth, this.boardHeight, 1);
 
-    const py = pos.y * CELL_SIZE;
-
-
-
-    this.hoverHighlightGraphics.lineStyle(2, HOVER_HIGHLIGHT_COLOR, 1);
-
-    this.hoverHighlightGraphics.strokeRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+    this.drawProjectedPolygon(
+      this.hoverHighlightGraphics,
+      corners,
+      undefined,
+      { width: 2, color: HOVER_HIGHLIGHT_COLOR, alpha: 1 },
+    );
 
   }
 

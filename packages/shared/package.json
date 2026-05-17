@@ -8,7 +8,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate-framework": "pnpm --filter @mugen/server exec tsx ../../scripts/migrate-cards-to-framework.ts",
+    "build:with-validation": "tsc --noEmit && pnpm run validate-framework"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

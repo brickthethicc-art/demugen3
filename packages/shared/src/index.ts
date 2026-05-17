@@ -10,3 +10,5 @@ export * as TurnEngine from './engines/turn/index.js';
 export * as StartingPlacementEngine from './engines/starting-placement/index.js';
 export * as PlayerColorEngine from './engines/player-color/index.js';
 export * as VisibilityEngine from './engines/visibility/index.js';
+export * from './utils/card-framework-validator.js';
+export * from './utils/card-template-generator.js';

@@ -92,7 +92,24 @@ export function getCurrentPlayerStandbyStatus(state: GameState): StandbyPhaseSta
   if (!currentPlayer) {
     throw new Error(`Current player not found at index ${state.currentPlayerIndex}`);
   }
-  return shouldTriggerStandbyPhase(currentPlayer, state.board.width, state.board.height);
+  const baseStatus = shouldTriggerStandbyPhase(currentPlayer, state.board.width, state.board.height);
+
+  const requiresPreDrawDiscard =
+    state.pendingTurnStartDraw === true &&
+    currentPlayer.hand.cards.length === MAX_HAND_SIZE;
+
+  if (!requiresPreDrawDiscard) {
+    return baseStatus;
+  }
+
+  return {
+    ...baseStatus,
+    isActive: true,
+    needsHandDiscard: true,
+    canSummonToBench: false,
+    message: 'You must discard 1 card before drawing.',
+    canProgress: false,
+  };
 }
 
 /**

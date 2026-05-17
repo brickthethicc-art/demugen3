@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '../store/game-store.js';
 import { Trash2 } from 'lucide-react';
 import { DiscardPileViewer } from './DiscardPileViewer.js';
+import { CardFront } from './CardFront.js';
 
 const MAX_VISIBLE_STACK_CARDS = 5;
 const MAX_PILE_THICKNESS_PX = 18;
@@ -179,34 +180,9 @@ export function DiscardPile() {
                     boxShadow: isTopCard
                       ? '0 10px 16px rgba(0, 0, 0, 0.5)'
                       : '0 5px 11px rgba(0, 0, 0, 0.35)',
-                    background:
-                      card.cardType === 'UNIT'
-                        ? 'linear-gradient(160deg, rgba(37, 99, 235, 0.65) 0%, rgba(15, 23, 42, 0.94) 72%)'
-                        : 'linear-gradient(160deg, rgba(147, 51, 234, 0.6) 0%, rgba(15, 23, 42, 0.94) 72%)',
                   }}
                 >
-                  <div className="absolute inset-x-0 top-0 h-8 bg-black/20" />
-                  {isTopCard ? (
-                    <div className="relative z-10 h-full p-2 flex flex-col">
-                      <div className="text-[11px] text-white font-semibold truncate">{card.name}</div>
-                      <div className="mt-1 flex items-center justify-between text-[10px]">
-                        <span className="text-gray-200/90">{card.cardType}</span>
-                        <span className="text-gray-100 font-bold">{card.cost}</span>
-                      </div>
-                      {'atk' in card && 'hp' in card ? (
-                        <div className="mt-auto flex items-center justify-between text-[10px] text-gray-100">
-                          <span>ATK {card.atk}</span>
-                          <span>HP {card.hp}</span>
-                        </div>
-                      ) : (
-                        <div className="mt-auto text-[9px] text-gray-200/85 line-clamp-2">{'effect' in card ? card.effect : ''}</div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="relative z-10 h-full p-2 flex flex-col justify-end">
-                      <div className="text-[10px] text-gray-100/80 truncate">{card.name}</div>
-                    </div>
-                  )}
+                  <CardFront card={card} width={124} height={172} />
                 </div>
               );
             })}

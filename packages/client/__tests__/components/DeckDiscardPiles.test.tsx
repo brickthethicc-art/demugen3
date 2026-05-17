@@ -3,7 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { useGameStore } from '../../src/store/game-store.js';
 import { MainDeckPile } from '../../src/components/MainDeckPile.js';
 import { DiscardPile } from '../../src/components/DiscardPile.js';
-import { CardType, AbilityType } from '@mugen/shared';
+import { DiscardPileViewer } from '../../src/components/DiscardPileViewer.js';
+import { CardType, AbilityType, HIDDEN_CARD_ID_PREFIX } from '@mugen/shared';
 import type { Card, UnitCard } from '@mugen/shared';
 
 function makeUnit(id: string): UnitCard {
@@ -51,6 +52,39 @@ describe('MainDeckPile', () => {
     useGameStore.setState({ mainDeck: cards });
     render(<MainDeckPile />);
     expect(screen.getByTestId('main-deck-pile')).toBeInTheDocument();
+  });
+});
+
+describe('DiscardPileViewer', () => {
+  const makeEntries = (cards: Card[]) =>
+    cards.map((card, index) => ({
+      card,
+      timestamp: 1000 + index,
+      source: 'other' as const,
+    }));
+
+  it('renders normal discard entries face-up', () => {
+    const cards: Card[] = [makeUnit('visible')];
+    render(<DiscardPileViewer entries={makeEntries(cards)} count={cards.length} onClose={() => undefined} />);
+
+    expect(screen.getByText('Unit visible')).toBeInTheDocument();
+  });
+
+  it('renders card back only for hidden-card IDs', () => {
+    const hiddenCard: Card = {
+      id: `${HIDDEN_CARD_ID_PREFIX}:p2:discardPile:0`,
+      name: 'Hidden Card',
+      cardType: CardType.SORCERY,
+      cost: 0,
+      effect: '',
+    };
+
+    const { container } = render(
+      <DiscardPileViewer entries={makeEntries([hiddenCard])} count={1} onClose={() => undefined} />
+    );
+
+    expect(screen.queryByText('Hidden Card')).not.toBeInTheDocument();
+    expect(container.querySelector('[style*="back-of-card.png"]')).toBeTruthy();
   });
 });
 

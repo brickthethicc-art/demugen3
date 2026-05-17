@@ -50,7 +50,8 @@ export function filterCards(cards: Card[], filters: CardFilters): Card[] {
     result = result.filter(
       (c) =>
         c.cardType === CardType.UNIT &&
-        c.ability.abilityType === filters.abilityType
+        (c.ability.abilityType === filters.abilityType ||
+          c.abilities?.some((ability) => ability.abilityType === filters.abilityType))
     );
   }
 

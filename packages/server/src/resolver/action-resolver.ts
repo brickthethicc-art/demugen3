@@ -11,6 +11,7 @@ import {
   TurnEngine,
   GameEngine,
   StartingPlacementEngine,
+  CardEngine,
 } from '@mugen/shared';
 import { canPlaySorcery, executeSorceryEffect, discardSorceryCard } from '@mugen/shared';
 import type { Lobby } from '../lobby/lobby-manager.js';
@@ -221,7 +222,14 @@ function resolveGameIntent(
       break;
 
     case IntentType.USE_ABILITY:
-      intentResult = TurnEngine.processAbility(state, playerId, intent.unitId, intent.targetId ?? null, intent.targetOwnerId ?? null);
+      intentResult = TurnEngine.processAbility(
+        state,
+        playerId,
+        intent.unitId,
+        intent.abilityId ?? null,
+        intent.targetId ?? null,
+        intent.targetOwnerId ?? null,
+      );
       break;
 
     case IntentType.ATTACK:
@@ -311,7 +319,13 @@ function resolveDiscardCard(
 
   const player = state.players[playerIndex]!;
 
-  if (player.hand.cards.length <= MAX_HAND_SIZE) {
+  const canResolvePendingTurnStartDiscard =
+    state.pendingTurnStartDraw === true &&
+    playerIndex === state.currentPlayerIndex &&
+    state.turnPhase === TurnPhase.STANDBY &&
+    player.hand.cards.length === MAX_HAND_SIZE;
+
+  if (player.hand.cards.length <= MAX_HAND_SIZE && !canResolvePendingTurnStartDiscard) {
     return { ok: false, error: 'Hand size is within limit, no discard needed' };
   }
 
@@ -324,15 +338,31 @@ function resolveDiscardCard(
   const newHandCards = player.hand.cards.filter((_, i) => i !== cardIndex);
   const newDiscardCards = [...player.discardPile.cards, discardedCard];
 
-  const updatedPlayers = state.players.map((p, i) =>
-    i === playerIndex
-      ? {
-          ...p,
-          hand: { cards: newHandCards },
-          discardPile: { cards: newDiscardCards },
-        }
-      : p
-  );
+  let updatedPlayer = {
+    ...player,
+    hand: { cards: newHandCards },
+    discardPile: { cards: newDiscardCards },
+  };
 
-  return { ok: true, value: { ...state, players: updatedPlayers } };
+  if (canResolvePendingTurnStartDiscard && updatedPlayer.mainDeck.cards.length > 0) {
+    const { card, deck } = CardEngine.drawOne(updatedPlayer.mainDeck);
+    if (card) {
+      updatedPlayer = {
+        ...updatedPlayer,
+        mainDeck: deck,
+        hand: { cards: [...updatedPlayer.hand.cards, card] },
+      };
+    }
+  }
+
+  const updatedPlayers = state.players.map((p, i) => (i === playerIndex ? updatedPlayer : p));
+
+  return {
+    ok: true,
+    value: {
+      ...state,
+      players: updatedPlayers,
+      pendingTurnStartDraw: false,
+    },
+  };
 }

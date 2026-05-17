@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { Card } from '@mugen/shared';
+import { isHiddenCardId } from '@mugen/shared';
+import { CardFront } from './CardFront.js';
+import { getCardBackStyle } from '../utils/card-back-style.js';
 
 interface DiscardPileEntry {
   card: Card;
@@ -46,7 +49,7 @@ export function DiscardPileViewer({ entries, onClose, count }: DiscardPileViewer
 
   return (
     <div 
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto"
       onClick={handleBackdropClick}
     >
       <div className="bg-mugen-surface border border-white/10 rounded-lg shadow-xl max-w-4xl w-full mx-4 overflow-hidden">
@@ -74,48 +77,35 @@ export function DiscardPileViewer({ entries, onClose, count }: DiscardPileViewer
             </div>
           ) : (
             <div ref={scrollContainerRef} className="flex gap-2 overflow-x-auto pb-2">
-              {sortedEntries.map((entry) => (
-                <div
-                  key={`${entry.card.id}-${entry.timestamp}`}
-                  className="flex-shrink-0 w-[136px] h-[184px] bg-mugen-bg border border-white/10 rounded-lg p-3 cursor-pointer hover:border-mugen-accent/50 transition-colors relative"
-                >
-                  {/* Card Type Indicator */}
-                  <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
-                    ${entry.card.cardType === 'UNIT' 
-                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' 
-                      : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                    }`}>
-                    {entry.card.cardType === 'UNIT' ? 'U' : 'S'}
-                  </div>
-                  
-                  {/* Card Content - Same as hand styling */}
-                  <div className="text-white font-semibold text-sm truncate pr-8">
-                    {entry.card.name}
-                  </div>
-                  <div className="flex flex-col text-xs text-gray-300 mt-1">
-                    {entry.card.cardType === 'UNIT' ? (
-                      <>
-                        <span>HP: {(entry.card as any).hp}</span>
-                        <span>ATK: {(entry.card as any).atk}</span>
-                        <span>Cost: {entry.card.cost}</span>
-                      </>
+              {sortedEntries.map((entry) => {
+                return (
+                  <div
+                    key={`${entry.card.id}-${entry.timestamp}`}
+                    className="group relative flex-shrink-0 cursor-pointer"
+                  >
+                    {isHiddenCardId(entry.card.id) ? (
+                      <div
+                        className="h-[184px] w-[136px] rounded-md border border-white/15 transition-all group-hover:brightness-110"
+                        style={getCardBackStyle()}
+                      />
                     ) : (
-                      <span>Cost: {entry.card.cost}</span>
+                      <CardFront
+                        card={entry.card}
+                        width={136}
+                        height={184}
+                        className="transition-all group-hover:brightness-110"
+                      />
                     )}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1 truncate">
-                    {entry.card.cardType === 'UNIT' ? (entry.card as any).ability?.name : (entry.card as any).effect}
-                  </div>
 
-                  {/* Graveyard-specific info */}
-                  <div className="absolute bottom-2 left-3 right-3">
-                    <div className="text-xs text-gray-500 truncate">
-                      {entry.source === 'unit_death' ? 'Unit Death' : 
-                       entry.source === 'sorcery_played' ? 'Sorcery Played' : 'Other'}
+                    <div className="pointer-events-none absolute bottom-2 left-2 right-2">
+                      <div className="rounded bg-black/65 px-2 py-1 text-center text-[10px] text-gray-200">
+                        {entry.source === 'unit_death' ? 'Unit Death' :
+                          entry.source === 'sorcery_played' ? 'Sorcery Played' : 'Other'}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -125,8 +115,7 @@ export function DiscardPileViewer({ entries, onClose, count }: DiscardPileViewer
           <div className="flex items-center justify-between text-sm text-gray-400">
             <div>Scroll horizontally to see all cards</div>
             <div>
-              Units: {entries.filter(e => e.card.cardType === 'UNIT').length} | 
-              Sorceries: {entries.filter(e => e.card.cardType === 'SORCERY').length}
+              {`Units: ${entries.filter(e => e.card.cardType === 'UNIT').length} | Sorceries: ${entries.filter(e => e.card.cardType === 'SORCERY').length}`}
             </div>
           </div>
         </div>

@@ -1,9 +1,9 @@
 import type { GameState, UnitInstance, Position, PlayerState, UnitCard } from '../../types/index.js';
-import { TurnPhase, MAX_MOVES_PER_TURN, ACTIVE_UNIT_COUNT, RESERVE_UNIT_COUNT, CardType, CombatModifierType } from '../../types/index.js';
+import { TurnPhase, MAX_MOVES_PER_TURN, ACTIVE_UNIT_COUNT, RESERVE_UNIT_COUNT, CardType, CombatModifierType, MAX_HAND_SIZE } from '../../types/index.js';
 import type { Result } from '../../types/actions.js';
 import { moveUnit as boardMoveUnit, placeUnit, removeUnit as boardRemoveUnit } from '../board/index.js';
 import { resolveCombat } from '../combat/index.js';
-import { useAbility, isSelfTargetAbility } from '../ability/index.js';
+import { useAbilityWithSelection, isSelfTargetAbility } from '../ability/index.js';
 import { applyDamageToLife } from '../resource/index.js';
 import { drawOne } from '../card/index.js';
 import { handleUnitDeath } from '../discard-pile/index.js';
@@ -12,6 +12,23 @@ import { chebyshevDistance } from '../../utils/position.js';
 import { hasLineOfSight } from '../visibility/index.js';
 import { isWallCell } from '../../utils/walls.js';
 
+function tickAbilityCooldowns(cooldowns: Record<string, number> | undefined): Record<string, number> | undefined {
+  if (!cooldowns) return cooldowns;
+  const next: Record<string, number> = {};
+  let changed = false;
+  for (const [id, turns] of Object.entries(cooldowns)) {
+    const decremented = Math.max(0, turns - 1);
+    if (decremented > 0) {
+      next[id] = decremented;
+    } else {
+      changed = true;
+    }
+    if (decremented !== turns) changed = true;
+  }
+  // Preserve original reference when nothing changed (no-op).
+  return changed ? next : cooldowns;
+}
+
 export function startTurn(state: GameState): GameState {
   const currentPlayer = state.players[state.currentPlayerIndex]!;
   const resetUnits = currentPlayer.units.map((u) => ({
@@ -19,6 +36,7 @@ export function startTurn(state: GameState): GameState {
     hasMovedThisTurn: false,
     hasUsedAbilityThisTurn: false,
     hasAttackedThisTurn: false,
+    abilityCooldowns: tickAbilityCooldowns(u.abilityCooldowns),
   }));
 
   let updatedPlayer: PlayerState = {
@@ -27,10 +45,15 @@ export function startTurn(state: GameState): GameState {
     reserveLockedUntilNextTurn: false,
   };
 
-  if (
+  const shouldAttemptTurnStartDraw =
     state.turnRotation >= 1 &&
-    updatedPlayer.mainDeck.cards.length > 0
-  ) {
+    updatedPlayer.mainDeck.cards.length > 0;
+
+  const shouldDeferTurnStartDraw =
+    shouldAttemptTurnStartDraw &&
+    updatedPlayer.hand.cards.length === MAX_HAND_SIZE;
+
+  if (shouldAttemptTurnStartDraw && !shouldDeferTurnStartDraw) {
     const { card, deck: newMainDeck } = drawOne(updatedPlayer.mainDeck);
     if (card) {
       updatedPlayer = {
@@ -49,6 +72,7 @@ export function startTurn(state: GameState): GameState {
   const newState = {
     ...state,
     players: newPlayers,
+    pendingTurnStartDraw: shouldDeferTurnStartDraw,
     movesUsedThisTurn: 0,
   };
 
@@ -193,6 +217,7 @@ export function processAbility(
   state: GameState,
   playerId: string,
   unitId: string,
+  abilityId: string | null,
   targetUnitId: string | null,
   targetOwnerId?: string | null
 ): Result<GameState> {
@@ -212,8 +237,27 @@ export function processAbility(
 
   const { unit } = found;
 
-  // Use ability engine's helper function for self-target detection
-  const isSelfTarget = isSelfTargetAbility(unit.card.ability.abilityType, unit.card.ability.description);
+  // Resolve which ability is being fired:
+  // - If `abilityId` is provided, look it up in `unit.card.abilities ?? [unit.card.ability]`.
+  // - Otherwise fall back to the legacy primary `unit.card.ability` for backward compatibility.
+  const availableAbilities = unit.card.abilities && unit.card.abilities.length > 0
+    ? unit.card.abilities
+    : [unit.card.ability];
+  const ability = abilityId
+    ? availableAbilities.find((a) => a.id === abilityId)
+    : unit.card.ability;
+  if (!ability) {
+    return { ok: false, error: `Ability ${abilityId} not found on unit ${unitId}` };
+  }
+
+  // Enforce per-ability cooldown before delegating to the ability engine.
+  const remainingCooldown = unit.abilityCooldowns?.[ability.id] ?? 0;
+  if (remainingCooldown > 0) {
+    return { ok: false, error: `Ability on cooldown (${remainingCooldown} turns remaining)` };
+  }
+
+  // Use ability engine's helper function for self-target detection on the chosen ability.
+  const isSelfTarget = isSelfTargetAbility(ability.abilityType, ability.description);
 
   let targetUnit: UnitInstance | null = null;
   let targetFound: { player: PlayerState; unit: UnitInstance; playerIndex: number } | null = null;
@@ -234,8 +278,12 @@ export function processAbility(
   }
 
   // All validation (range, target type, board state) is handled by the ability engine
-  // This ensures single source of truth for ability rules
-  const abilityResult = useAbility(unit, targetUnit, state.walls);
+  // This ensures single source of truth for ability rules.
+  // TODO(zeus-multi-ability): extend ability engine to support multi-target /
+  // AoE resolution (e.g., "up to 2 enemies", "all enemies within N tiles",
+  // push-back, stun, ABILITY_LOCK debuff). For now each ability resolves
+  // against a single chosen target via the chosen `abilityType`.
+  const abilityResult = useAbilityWithSelection(unit, ability, targetUnit, state.walls);
   if (!abilityResult.ok) {
     return { ok: false, error: 'error' in abilityResult ? abilityResult.error : 'Failed to use ability' };
   }

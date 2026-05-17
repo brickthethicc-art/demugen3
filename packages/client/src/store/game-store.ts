@@ -9,24 +9,6 @@ import { diffAndLog } from '../utils/game-log.js';
 
 export type Screen = 'main-menu' | 'deck-builder' | 'card-library' | 'deck-select' | 'lobby' | 'pregame' | 'game' | 'gameover';
 
-const MOBILE_UI_SESSION_KEY = 'mugen-mobile-ui-mode';
-
-function readInitialMobileUiMode(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  return window.sessionStorage.getItem(MOBILE_UI_SESSION_KEY) === '1';
-}
-
-function persistMobileUiMode(enabled: boolean): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  window.sessionStorage.setItem(MOBILE_UI_SESSION_KEY, enabled ? '1' : '0');
-}
-
 export interface GameStore {
   // Connection
   playerId: string | null;
@@ -55,6 +37,11 @@ export interface GameStore {
   validMoves: Position[];
   abilityModeActive: boolean;
   abilityTargets: AbilityTarget[];
+  /**
+   * AbilityDefinition.id chosen by the player when initiating ability targeting.
+   * `null` means the unit's primary `card.ability` is implied (legacy behavior).
+   */
+  selectedAbilityId: string | null;
   attackModeActive: boolean;
   attackTargets: AttackTarget[];
   deploymentModeActive: boolean;
@@ -117,6 +104,7 @@ export interface GameStore {
   exitAbilityMode: () => void;
   setAbilityTargets: (targets: AbilityTarget[]) => void;
   clearAbilityTargets: () => void;
+  setSelectedAbilityId: (abilityId: string | null) => void;
   enterAttackMode: () => void;
   exitAttackMode: () => void;
   setAttackTargets: (targets: AttackTarget[]) => void;
@@ -163,7 +151,7 @@ const initialState = {
   lobbyCode: null,
   screen: 'main-menu' as Screen,
   isGameInitialized: false,
-  mobileUiMode: readInitialMobileUiMode(),
+  mobileUiMode: false,
   lobbyPlayers: [],
   selectedDeck: null,
   startingUnits: [],
@@ -174,6 +162,7 @@ const initialState = {
   validMoves: [],
   abilityModeActive: false,
   abilityTargets: [],
+  selectedAbilityId: null,
   attackModeActive: false,
   attackTargets: [],
   deploymentModeActive: false,
@@ -212,14 +201,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setPlayerName: (name) => set({ playerName: name }),
   setLobbyCode: (code) => set({ lobbyCode: code }),
   setScreen: (screen) => set({ screen }),
-  setMobileUiMode: (enabled) => {
-    persistMobileUiMode(enabled);
-    set({ mobileUiMode: enabled });
-  },
+  setMobileUiMode: (enabled) => set({ mobileUiMode: enabled }),
   toggleMobileUiMode: () => {
-    const nextMode = !get().mobileUiMode;
-    persistMobileUiMode(nextMode);
-    set({ mobileUiMode: nextMode });
+    set({ mobileUiMode: !get().mobileUiMode });
   },
   setLobbyPlayers: (players) => set({ lobbyPlayers: players }),
   addGameLog: (message) => set((s) => ({ gameLogs: [...s.gameLogs, message] })),
@@ -345,14 +329,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // Hand limit detection: trigger notification → modal flow
       const handSize = currentPlayer?.hand.cards.length ?? 0;
-      if (handSize > MAX_HAND_SIZE && !get().handLimitModalOpen && !get().handLimitNotification) {
+      const isMyTurn = state.players[state.currentPlayerIndex]?.id === playerId;
+      const requiresPreDrawDiscard =
+        state.pendingTurnStartDraw === true &&
+        isMyTurn &&
+        handSize === MAX_HAND_SIZE;
+
+      if ((handSize > MAX_HAND_SIZE || requiresPreDrawDiscard) && !get().handLimitModalOpen && !get().handLimitNotification) {
         set({ handLimitNotification: true });
       }
 
       // Standby deploy modal: show ONLY when it is the LOCAL player's turn
       // and they enter standby with fewer than 3 of THEIR OWN active units.
       // Each player (1–4) has separate units; never count other players' units.
-      const isMyTurn = state.players[state.currentPlayerIndex]?.id === playerId;
       if (state.turnPhase === 'STANDBY' && isMyTurn && currentPlayer) {
         const myActiveOnBoard = currentPlayer.units.filter(u =>
           u.position !== null &&
@@ -367,9 +356,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
         // Check if summon-to-bench step is available (step 3 of standby)
         const standbyStatus = shouldTriggerStandbyPhase(currentPlayer, state.board.width, state.board.height);
+        const needsPreDrawDiscard =
+          state.pendingTurnStartDraw === true &&
+          currentPlayer.hand.cards.length === MAX_HAND_SIZE;
         if (standbyStatus.canSummonToBench && !get().summonModalOpen) {
           // Only show summon modal after standby deploy is resolved
-          if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard) {
+          if (!standbyStatus.needsBenchDeployment && !standbyStatus.needsHandDiscard && !needsPreDrawDiscard) {
             set({ summonModalOpen: true });
           }
         }
@@ -414,13 +406,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }
   },
-  selectUnit: (unitId) => set({ selectedUnitId: unitId, moveModeActive: false, menuHiddenDuringMove: false, validMoves: [], abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
-  enterMoveMode: () => set({ moveModeActive: true, abilityModeActive: false, abilityTargets: [], attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
+  selectUnit: (unitId) => set({ selectedUnitId: unitId, moveModeActive: false, menuHiddenDuringMove: false, validMoves: [], abilityModeActive: false, abilityTargets: [], selectedAbilityId: null, attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
+  enterMoveMode: () => set({ moveModeActive: true, abilityModeActive: false, abilityTargets: [], selectedAbilityId: null, attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
   exitMoveMode: () => set({ moveModeActive: false, menuHiddenDuringMove: false, validMoves: [] }),
   enterAbilityMode: () => set({ abilityModeActive: true, moveModeActive: false, validMoves: [], attackModeActive: false, attackTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
-  exitAbilityMode: () => set({ abilityModeActive: false, abilityTargets: [] }),
+  exitAbilityMode: () => set({ abilityModeActive: false, abilityTargets: [], selectedAbilityId: null }),
   setAbilityTargets: (targets) => set({ abilityTargets: targets }),
   clearAbilityTargets: () => set({ abilityTargets: [] }),
+  setSelectedAbilityId: (abilityId) => set({ selectedAbilityId: abilityId }),
   enterAttackMode: () => set({ attackModeActive: true, moveModeActive: false, validMoves: [], abilityModeActive: false, abilityTargets: [], sorceryModeActive: false, selectedSorceryCard: null, sorceryRequiresTarget: false, sorceryFirstTarget: null }),
   exitAttackMode: () => set({ attackModeActive: false, attackTargets: [] }),
   setAttackTargets: (targets) => set({ attackTargets: targets }),
@@ -530,5 +523,5 @@ export const useGameStore = create<GameStore>((set, get) => ({
     totalPlayersCount: totalCount, 
     isWaitingForOthers: waiting 
   }),
-  reset: () => set({ ...initialState, mobileUiMode: readInitialMobileUiMode() }),
+  reset: () => set({ ...initialState }),
 }));

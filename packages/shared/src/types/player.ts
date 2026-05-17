@@ -13,6 +13,13 @@ export interface UnitInstance {
   hasUsedAbilityThisTurn: boolean;
   hasAttackedThisTurn: boolean;
   combatModifiers: CombatModifier[];
+  /**
+   * Per-ability cooldown tracking, keyed by AbilityDefinition.id.
+   * Value is turns remaining until the ability is usable again.
+   * Missing/zero entries mean the ability is ready.
+   * Decremented for the active player's units at startTurn.
+   */
+  abilityCooldowns?: Record<string, number>;
 }
 
 export interface CombatModifier {

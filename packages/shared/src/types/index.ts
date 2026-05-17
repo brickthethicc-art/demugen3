@@ -1,6 +1,10 @@
 export {
   CardType,
   AbilityType,
+  CARD_FRAMEWORK_VERSION,
+  CARD_FRAMEWORK_BASELINE_UPDATED_AT,
+  DEFAULT_STAT_DISPLAY_ORDER,
+  createDefaultCardFramework,
   MAX_DECK_SIZE,
   MAX_HAND_SIZE,
   MAX_TEAM_SIZE,
@@ -9,9 +13,16 @@ export {
   MAX_TEAM_COST,
   PLAYER_DECK_SIZE,
   FIELD_CARD_COUNT,
+  HIDDEN_CARD_ID_PREFIX,
+  isHiddenCardId,
 } from './card.js';
 export type {
   AbilityDefinition,
+  CardFramework,
+  CardFrameStyle,
+  ArtAspectRatio,
+  TextLayout,
+  StatDisplayField,
   UnitCard,
   SorceryCard,
   Card,

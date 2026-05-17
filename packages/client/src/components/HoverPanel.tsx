@@ -1,6 +1,9 @@
 import { useGameStore } from '../store/game-store.js';
+import { CardType, CombatModifierType } from '@mugen/shared';
 import type { UnitCard, SorceryCard } from '@mugen/shared';
-import { CombatModifierType } from '@mugen/shared';
+import { CardFront } from './CardFront.js';
+
+const PANEL_CLASS = 'fixed left-0 top-1/2 -translate-y-1/2 mt-[70px] w-80 bg-gray-900/90 border-r border-white/10 p-6';
 
 export function HoverPanel() {
   const hoveredCard = useGameStore(state => state.hoveredCard);
@@ -8,44 +11,47 @@ export function HoverPanel() {
 
   if (!hoveredCard) {
     return (
-      <div 
+      <div
         data-testid="hover-panel"
-        className="fixed left-0 top-1/2 -translate-y-1/2 w-80 bg-gray-900/90 border-r border-white/10 p-6"
+        className={PANEL_CLASS}
       >
         <div className="text-gray-500 text-sm text-center">Hover over a unit to see details</div>
       </div>
     );
   }
 
-  if (hoveredCard.cardType === 'SORCERY') {
+  if (hoveredCard.cardType === CardType.SORCERY) {
     const sorceryCard = hoveredCard as SorceryCard;
+
     return (
-      <div 
+      <div
         data-testid="hover-panel"
-        className="fixed left-0 top-1/2 -translate-y-1/2 w-80 bg-gray-900/90 border-r border-white/10 p-6"
+        className={PANEL_CLASS}
       >
-        <div className="text-white">
-          <h2 className="text-xl font-bold mb-4 text-blue-400">{sorceryCard.name}</h2>
-          
-          <div className="space-y-3">
+        <div className="space-y-4 text-white">
+          <div className="flex justify-center">
+            <CardFront card={sorceryCard} width={200} height={280} isHovered />
+          </div>
+
+          <div className="space-y-3 border-t border-white/15 pt-4">
             <div className="flex justify-between">
               <span className="text-gray-400">Type:</span>
               <span className="font-semibold text-blue-400">Sorcery</span>
             </div>
-            
+
             <div className="flex justify-between">
               <span className="text-gray-400">Cost:</span>
               <span className="font-semibold text-yellow-400">{sorceryCard.cost}</span>
             </div>
           </div>
-          
+
           <div className="mt-4 pt-4 border-t border-white/20">
             <h3 className="text-sm font-semibold text-gray-400 mb-2">Effect</h3>
             <div className="bg-gray-800 rounded p-3">
               <div className="text-sm text-gray-300">{sorceryCard.effect}</div>
             </div>
           </div>
-          
+
           <div className="mt-4 pt-4 border-t border-white/20">
             <div className="text-xs text-gray-500">
               Card ID: {sorceryCard.id}
@@ -62,6 +68,7 @@ export function HoverPanel() {
   const currentHp = hoveredUnitInstance ? hoveredUnitInstance.currentHp : unitCard.hp;
   const maxHp = unitCard.maxHp;
   const modifiers = hoveredUnitInstance ? hoveredUnitInstance.combatModifiers : [];
+  const abilities = unitCard.abilities && unitCard.abilities.length > 0 ? unitCard.abilities : [unitCard.ability];
 
   // Calculate effective ATK with buffs
   const atkBuffCount = modifiers.filter(m => m.type === CombatModifierType.ATK_BUFF).length;
@@ -73,35 +80,39 @@ export function HoverPanel() {
   const hasNoCounter = modifiers.some(m => m.type === CombatModifierType.NO_COUNTERATTACK);
 
   return (
-    <div 
+    <div
       data-testid="hover-panel"
-      className="fixed left-0 top-1/2 -translate-y-1/2 w-80 bg-gray-900/90 border-r border-white/10 p-6"
+      className={PANEL_CLASS}
     >
-      <div className="text-white">
-        <h2 className="text-xl font-bold mb-4 text-red-400">{unitCard.name}</h2>
-        
-        <div className="space-y-3">
-          <div className="flex justify-between">
-            <span className="text-gray-400">HP:</span>
+      <div className="space-y-4 text-white">
+        <div className="flex justify-center">
+          <CardFront card={unitCard} width={200} height={280} isHovered />
+        </div>
+
+        <h2 className="text-xl font-bold text-red-400">{unitCard.name}</h2>
+
+        <div className="flex flex-wrap gap-4">
+          <div className="flex flex-col">
+            <span className="text-gray-400 text-xs">HP</span>
             <span className={`font-semibold ${currentHp < maxHp ? 'text-red-400' : ''}`}>
               {currentHp} / {maxHp}
             </span>
           </div>
-          
-          <div className="flex justify-between">
-            <span className="text-gray-400">ATK:</span>
+
+          <div className="flex flex-col">
+            <span className="text-gray-400 text-xs">ATK</span>
             <span className={`font-semibold ${hasAtkBuff ? 'text-green-400' : ''}`}>
               {effectiveAtk}{hasAtkBuff && ` (+${atkBuffCount})`}
             </span>
           </div>
-          
-          <div className="flex justify-between">
-            <span className="text-gray-400">Movement:</span>
+
+          <div className="flex flex-col">
+            <span className="text-gray-400 text-xs">MOV</span>
             <span className="font-semibold">{unitCard.movement}</span>
           </div>
-          
-          <div className="flex justify-between">
-            <span className="text-gray-400">Range:</span>
+
+          <div className="flex flex-col">
+            <span className="text-gray-400 text-xs">RNG</span>
             <span className="font-semibold">{unitCard.range}</span>
           </div>
         </div>
@@ -125,14 +136,20 @@ export function HoverPanel() {
         )}
         
         <div className="mt-4 pt-4 border-t border-white/20">
-          <h3 className="text-sm font-semibold text-gray-400 mb-2">Ability</h3>
-          <div className="bg-gray-800 rounded p-3">
-            <div className="font-semibold text-blue-400 mb-1">{unitCard.ability.name}</div>
-            <div className="text-xs text-gray-300 mb-2">{unitCard.ability.description}</div>
-            <div className="text-xs text-green-400">Free — once per turn</div>
+          <h3 className="text-sm font-semibold text-gray-400 mb-2">{abilities.length > 1 ? 'Abilities' : 'Ability'}</h3>
+          <div className="space-y-2">
+            {abilities.map((ability) => (
+              <div key={ability.id} className="bg-gray-800 rounded p-3">
+                <div className="font-semibold text-blue-400 mb-1">{ability.name}</div>
+                <div className="text-xs text-gray-300 mb-2">{ability.description}</div>
+                <div className="text-xs text-green-400">
+                  {ability.cooldown != null ? `Cooldown: ${ability.cooldown}` : 'Free — once per turn'}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-        
+
         <div className="mt-4 pt-4 border-t border-white/20">
           <div className="text-xs text-gray-500">
             Card ID: {unitCard.id}

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveIntent, createInitialGameState } from '../../src/resolver/action-resolver.js';
-import { IntentType, GamePhase, TurnPhase, CardType } from '@mugen/shared';
+import { IntentType, GamePhase, TurnPhase, CardType, MAX_HAND_SIZE } from '@mugen/shared';
 import type { GameState, ClientIntent } from '@mugen/shared';
 import type { Lobby } from '../../src/lobby/lobby-manager.js';
 
@@ -153,6 +153,61 @@ describe('ActionResolver', () => {
       if (!result.ok) {
         expect(result.error).toContain('requires a target unit and target owner');
       }
+    });
+
+    it('DISCARD_CARD resolves pending pre-draw discard and performs deferred draw', () => {
+      const handCards = Array.from({ length: MAX_HAND_SIZE }, (_, index) => ({
+        id: `h${index + 1}`,
+        name: `Hand ${index + 1}`,
+        cardType: CardType.SORCERY as const,
+        cost: 1,
+        effect: 'Hand',
+      }));
+
+      const state: GameState = {
+        ...gameState,
+        phase: GamePhase.IN_PROGRESS,
+        turnPhase: TurnPhase.STANDBY,
+        currentPlayerIndex: 0,
+        pendingTurnStartDraw: true,
+        players: gameState.players.map((player, index) => {
+          if (index !== 0) {
+            return player;
+          }
+
+          return {
+            ...player,
+            hand: { cards: handCards },
+            mainDeck: {
+              cards: [
+                {
+                  id: 'drawn-card',
+                  name: 'Drawn Card',
+                  cardType: CardType.SORCERY,
+                  cost: 2,
+                  effect: 'Drawn',
+                },
+              ],
+            },
+            discardPile: { cards: [] },
+          };
+        }),
+      };
+
+      const intent: ClientIntent = { type: IntentType.DISCARD_CARD, cardId: handCards[0]!.id };
+      const result = resolveIntent(state, 'p1', intent);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+
+      const updatedPlayer = result.value.players[0]!;
+      expect(result.value.pendingTurnStartDraw).toBe(false);
+      expect(updatedPlayer.hand.cards).toHaveLength(MAX_HAND_SIZE);
+      expect(updatedPlayer.hand.cards.some((card) => card.id === 'drawn-card')).toBe(true);
+      expect(updatedPlayer.discardPile.cards).toHaveLength(1);
+      expect(updatedPlayer.discardPile.cards[0]?.id).toBe(handCards[0]!.id);
     });
   });
 });

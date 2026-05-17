@@ -20,6 +20,8 @@ import {
 import {
   TurnPhase,
   GamePhase,
+  MAX_HAND_SIZE,
+  AbilityType,
 } from '../../src/types/index.js';
 import type { GameState, UnitInstance, Position } from '../../src/types/index.js';
 import { placeUnit } from '../../src/engines/board/index.js';
@@ -105,6 +107,34 @@ describe('TurnEngine', () => {
       const result = startTurn(state);
       expect(result.turnPhase).toBe(TurnPhase.MOVE);
       expect(result.movesUsedThisTurn).toBe(0);
+    });
+
+    it('defers turn-start draw when hand is exactly at max size', () => {
+      const state = setupGameInProgress();
+      const handAtLimit = Array.from({ length: MAX_HAND_SIZE }, (_, index) =>
+        createUnit({ id: `h-${index}` })
+      );
+      const drawCard = createUnit({ id: 'draw-card' });
+
+      const updatedState: GameState = {
+        ...state,
+        turnRotation: 1,
+        players: [
+          {
+            ...state.players[0]!,
+            hand: { cards: handAtLimit },
+            mainDeck: { cards: [drawCard] },
+          },
+          state.players[1]!,
+        ],
+      };
+
+      const result = startTurn(updatedState);
+
+      expect(result.pendingTurnStartDraw).toBe(true);
+      expect(result.turnPhase).toBe(TurnPhase.STANDBY);
+      expect(result.players[0]!.hand.cards).toHaveLength(MAX_HAND_SIZE);
+      expect(result.players[0]!.mainDeck.cards).toHaveLength(1);
     });
   });
 
@@ -211,7 +241,7 @@ describe('TurnEngine', () => {
         players: [base.players[0]!, { ...p2, units: adjUnits }],
         board: board2,
       };
-      const result = processAbility(finalState, 'p1', 'u1', 'u4');
+      const result = processAbility(finalState, 'p1', 'u1', null, 'u4');
       expect(result.ok).toBe(true);
       if (result.ok) {
         const unit = result.value.players[0]!.units.find((u: UnitInstance) => u.card.id === 'u1');
@@ -244,7 +274,7 @@ describe('TurnEngine', () => {
         board: board2,
       };
 
-      const result = processAbility(updatedState, 'p1', 'u1', 'u4');
+      const result = processAbility(updatedState, 'p1', 'u1', null, 'u4');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toContain('already used');
@@ -253,7 +283,7 @@ describe('TurnEngine', () => {
 
     it('not in ABILITY phase — returns error', () => {
       const state = { ...setupGameInProgress(), turnPhase: TurnPhase.MOVE };
-      const result = processAbility(state, 'p1', 'u1', 'u4');
+      const result = processAbility(state, 'p1', 'u1', null, 'u4');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toContain('ABILITY');
@@ -280,7 +310,7 @@ describe('TurnEngine', () => {
         board: board2,
       };
 
-      const result = processAbility(state, 'p1', 'u1', 'u4');
+      const result = processAbility(state, 'p1', 'u1', null, 'u4');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toContain('wall');
@@ -308,7 +338,7 @@ describe('TurnEngine', () => {
         board: board2,
       };
 
-      const result = processAbility(state, 'p1', 'u1', 'u4');
+      const result = processAbility(state, 'p1', 'u1', null, 'u4');
       expect(result.ok).toBe(true);
       if (result.ok) {
         // Target unit should be removed from player 2's unit array
@@ -340,7 +370,7 @@ describe('TurnEngine', () => {
         board: board2,
       };
 
-      const result = processAbility(state, 'p1', 'u1', 'u4');
+      const result = processAbility(state, 'p1', 'u1', null, 'u4');
       expect(result.ok).toBe(true);
       if (result.ok) {
         // Target unit should still exist with reduced HP
@@ -350,6 +380,137 @@ describe('TurnEngine', () => {
         // Board cell should still have the unit
         expect(result.value.board.cells[1]![0]!.occupantId).toBe('u4');
       }
+    });
+
+    it('multi-ability unit — abilityId selects from card.abilities', () => {
+      const base = { ...setupGameInProgress(), turnPhase: TurnPhase.ABILITY };
+      const p1 = base.players[0]!;
+      const p2 = base.players[1]!;
+
+      // Build a multi-ability card for u1: a HEAL primary and a DAMAGE alt.
+      const healAbility = {
+        id: 'heal-1',
+        name: 'Mend',
+        description: 'heal 4 hp to ally',
+        cost: 0,
+        abilityType: AbilityType.HEAL,
+      };
+      const damageAbility = {
+        id: 'dmg-1',
+        name: 'Strike',
+        description: 'deal 3 damage',
+        cost: 0,
+        abilityType: AbilityType.DAMAGE,
+      };
+
+      const u1Multi = p1.units.find((u: UnitInstance) => u.card.id === 'u1')!;
+      const u1WithAbilities: UnitInstance = {
+        ...u1Multi,
+        card: { ...u1Multi.card, ability: healAbility, abilities: [healAbility, damageAbility] },
+      };
+      const updatedP1Units = p1.units.map((u: UnitInstance) =>
+        u.card.id === 'u1' ? u1WithAbilities : u
+      );
+
+      // Place enemy u4 adjacent so DAMAGE selection can target it.
+      const adjP2Units = p2.units.map((u: UnitInstance) =>
+        u.card.id === 'u4' ? { ...u, position: { x: 0, y: 1 } as Position } : u
+      );
+      const board2 = { ...base.board };
+      board2.cells = base.board.cells.map((row: any, y: number) =>
+        row.map((cell: any, x: number) => {
+          if (x === 0 && y === 29) return { ...cell, occupantId: null };
+          if (x === 0 && y === 1) return { ...cell, occupantId: 'u4' };
+          return cell;
+        })
+      );
+
+      const state: GameState = {
+        ...base,
+        players: [{ ...p1, units: updatedP1Units }, { ...p2, units: adjP2Units }],
+        board: board2,
+      };
+
+      // Selecting the DAMAGE ability resolves as damage, not heal.
+      const result = processAbility(state, 'p1', 'u1', 'dmg-1', 'u4');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const target = result.value.players[1]!.units.find((u: UnitInstance) => u.card.id === 'u4');
+        expect(target!.currentHp).toBe(4); // 7 - 3 damage
+      }
+    });
+
+    it('cooldown ability — sets cooldown on use, blocks immediate re-fire, ticks down at startTurn', () => {
+      const base = { ...setupGameInProgress(), turnPhase: TurnPhase.ABILITY };
+      const p1 = base.players[0]!;
+      const p2 = base.players[1]!;
+
+      const cdAbility = {
+        id: 'cd-1',
+        name: 'Smite',
+        description: 'deal 3 damage',
+        cost: 0,
+        cooldown: 2,
+        abilityType: AbilityType.DAMAGE,
+      };
+
+      const u1 = p1.units.find((u: UnitInstance) => u.card.id === 'u1')!;
+      const u1WithCd: UnitInstance = {
+        ...u1,
+        card: { ...u1.card, ability: cdAbility, abilities: [cdAbility] },
+      };
+      const updatedP1Units = p1.units.map((u: UnitInstance) =>
+        u.card.id === 'u1' ? u1WithCd : u
+      );
+
+      const adjP2Units = p2.units.map((u: UnitInstance) =>
+        u.card.id === 'u4' ? { ...u, position: { x: 0, y: 1 } as Position } : u
+      );
+      const board2 = { ...base.board };
+      board2.cells = base.board.cells.map((row: any, y: number) =>
+        row.map((cell: any, x: number) => {
+          if (x === 0 && y === 29) return { ...cell, occupantId: null };
+          if (x === 0 && y === 1) return { ...cell, occupantId: 'u4' };
+          return cell;
+        })
+      );
+
+      const state: GameState = {
+        ...base,
+        players: [{ ...p1, units: updatedP1Units }, { ...p2, units: adjP2Units }],
+        board: board2,
+      };
+
+      // First use succeeds and writes cooldown=2.
+      const fired = processAbility(state, 'p1', 'u1', 'cd-1', 'u4');
+      expect(fired.ok).toBe(true);
+      if (!fired.ok) return;
+      const afterFire = fired.value.players[0]!.units.find((u: UnitInstance) => u.card.id === 'u1')!;
+      expect(afterFire.abilityCooldowns?.['cd-1']).toBe(2);
+
+      // Simulate next own-turn start: clears hasUsedAbilityThisTurn and ticks cooldown to 1.
+      const turnTicked = startTurn({ ...fired.value, turnPhase: TurnPhase.MOVE });
+      const afterTick1 = turnTicked.players[0]!.units.find((u: UnitInstance) => u.card.id === 'u1')!;
+      expect(afterTick1.abilityCooldowns?.['cd-1']).toBe(1);
+      expect(afterTick1.hasUsedAbilityThisTurn).toBe(false);
+
+      // Attempting to fire while still on cooldown returns an error.
+      const blocked = processAbility(
+        { ...turnTicked, turnPhase: TurnPhase.ABILITY },
+        'p1',
+        'u1',
+        'cd-1',
+        'u4',
+      );
+      expect(blocked.ok).toBe(false);
+      if (!blocked.ok) {
+        expect(blocked.error.toLowerCase()).toContain('cooldown');
+      }
+
+      // Another tick brings cooldown to 0 (entry pruned) and the ability is usable again.
+      const turnTicked2 = startTurn({ ...turnTicked, turnPhase: TurnPhase.MOVE });
+      const afterTick2 = turnTicked2.players[0]!.units.find((u: UnitInstance) => u.card.id === 'u1')!;
+      expect(afterTick2.abilityCooldowns?.['cd-1'] ?? 0).toBe(0);
     });
   });
 

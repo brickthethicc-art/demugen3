@@ -194,7 +194,7 @@ describe('Discard Pile - Unit Death', () => {
     };
 
     // Use damage ability that should kill the defender (3 HP - 3 damage = 0)
-    const result = processAbility(state, 'p1', 'attacker', 'defender', 'p2');
+    const result = processAbility(state, 'p1', 'attacker', null, 'defender', 'p2');
     expect(result.ok).toBe(true);
     if (result.ok) {
       // Check that defender's card is in p2's discard pile

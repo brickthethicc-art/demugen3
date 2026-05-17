@@ -27,6 +27,7 @@ export interface GameState {
   walls: Position[];
   turnNumber: number;
   turnRotation: number;
+  pendingTurnStartDraw?: boolean;
   movesUsedThisTurn: number;
   winnerId: string | null;
 }

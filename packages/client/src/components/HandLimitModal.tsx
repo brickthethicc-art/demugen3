@@ -23,12 +23,17 @@ export function HandLimitModal() {
     !!gameState &&
     !!playerId &&
     gameState.players[gameState.currentPlayerIndex]?.id === playerId;
+  const requiresPreDrawDiscard =
+    !!gameState &&
+    !!isMyTurn &&
+    gameState.pendingTurnStartDraw === true &&
+    handCards.length === MAX_HAND_SIZE;
 
-  const shouldPromptDiscard = handLimitModalOpen && isMyTurn && handExceeded;
+  const shouldPromptDiscard = handLimitModalOpen && isMyTurn && (handExceeded || requiresPreDrawDiscard);
 
   // Notification lifecycle: show while discard mode is active
   useEffect(() => {
-    if (handLimitNotification && !handLimitModalOpen && isMyTurn && handExceeded) {
+    if (handLimitNotification && !handLimitModalOpen && isMyTurn && (handExceeded || requiresPreDrawDiscard)) {
       openHandLimitModal();
       setNotifVisible(true);
       setNotifExiting(false);
@@ -51,21 +56,21 @@ export function HandLimitModal() {
         notifTimerRef.current = null;
       }
     };
-  }, [handLimitNotification, handLimitModalOpen, isMyTurn, handExceeded, shouldPromptDiscard, openHandLimitModal]);
+  }, [handLimitNotification, handLimitModalOpen, isMyTurn, handExceeded, requiresPreDrawDiscard, shouldPromptDiscard, openHandLimitModal]);
 
   // Re-check: close discard mode when no longer required
   useEffect(() => {
-    if (handLimitModalOpen && (!handExceeded || !isMyTurn)) {
+    if (handLimitModalOpen && (!(handExceeded || requiresPreDrawDiscard) || !isMyTurn)) {
       closeHandLimitModal();
     }
-  }, [handLimitModalOpen, handExceeded, isMyTurn, closeHandLimitModal]);
+  }, [handLimitModalOpen, handExceeded, requiresPreDrawDiscard, isMyTurn, closeHandLimitModal]);
 
   // Failsafe: always enforce discard modal when current-turn hand exceeds limit.
   useEffect(() => {
-    if (isMyTurn && handExceeded && !handLimitModalOpen && !handLimitNotification) {
+    if (isMyTurn && (handExceeded || requiresPreDrawDiscard) && !handLimitModalOpen && !handLimitNotification) {
       openHandLimitModal();
     }
-  }, [isMyTurn, handExceeded, handLimitModalOpen, handLimitNotification, openHandLimitModal]);
+  }, [isMyTurn, handExceeded, requiresPreDrawDiscard, handLimitModalOpen, handLimitNotification, openHandLimitModal]);
 
   return (
     <>
@@ -79,7 +84,7 @@ export function HandLimitModal() {
           }`}
         >
           <div className="bg-mugen-danger/95 text-white px-6 py-3 rounded-xl shadow-2xl text-sm font-semibold backdrop-blur-sm border border-red-400/30">
-            Select a card from your hand to discard ({handCards.length}/{MAX_HAND_SIZE})
+            You must discard 1 card before drawing.
           </div>
         </div>
       )}

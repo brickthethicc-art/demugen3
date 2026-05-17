@@ -50,6 +50,37 @@ export function setupGateway(io: SocketServer, state: ServerState): void {
       io.to(data.code).emit('lobby_updated', result.value);
     });
 
+    const leaveCurrentLobby = (emitDisconnectedEvent: boolean): void => {
+      const code = state.playerToLobby.get(playerId);
+      if (!code) {
+        return;
+      }
+
+      const lobby = state.lobbies.get(code);
+      if (lobby) {
+        const result = leaveLobby(lobby, playerId);
+        if (result.ok) {
+          if (result.value.disbanded) {
+            state.lobbies.delete(code);
+          } else {
+            state.lobbies.set(code, result.value);
+            io.to(code).emit('lobby_updated', result.value);
+          }
+
+          if (emitDisconnectedEvent) {
+            io.to(code).emit('player_disconnected', { playerId });
+          }
+        }
+      }
+
+      socket.leave(code);
+      state.playerToLobby.delete(playerId);
+    };
+
+    socket.on('leave_lobby', () => {
+      leaveCurrentLobby(false);
+    });
+
     socket.on('set_ready', (data: { ready: boolean }) => {
       const code = state.playerToLobby.get(playerId);
       if (!code) return;
@@ -225,22 +256,7 @@ export function setupGateway(io: SocketServer, state: ServerState): void {
     });
 
     socket.on('disconnect', (reason) => {
-      const code = state.playerToLobby.get(playerId);
-      if (code) {
-        const lobby = state.lobbies.get(code);
-        if (lobby) {
-          const result = leaveLobby(lobby, playerId);
-          if (result.ok) {
-            if (result.value.disbanded) {
-              state.lobbies.delete(code);
-            } else {
-              state.lobbies.set(code, result.value);
-            }
-            io.to(code).emit('player_disconnected', { playerId });
-          }
-        }
-        state.playerToLobby.delete(playerId);
-      }
+      leaveCurrentLobby(true);
       state.playerToGame.delete(playerId);
     });
 

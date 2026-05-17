@@ -24,6 +24,12 @@ export interface MoveUnitIntent {
 export interface UseAbilityIntent {
   type: IntentType.USE_ABILITY;
   unitId: string;
+  /**
+   * Optional AbilityDefinition.id selecting one of `unit.card.abilities`.
+   * Required when the unit defines multiple abilities; if omitted, the server
+   * falls back to the legacy primary `unit.card.ability` (backward compatible).
+   */
+  abilityId?: string;
   targetId?: string;
   targetOwnerId?: string;
   targetPosition?: Position;

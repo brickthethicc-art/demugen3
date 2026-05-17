@@ -44,14 +44,17 @@ export function generateDefaultWalls(width: number, height: number): Position[] 
   const walls: Position[] = [];
 
   for (let i = 0; i < armLength; i++) {
-    pushWallIfInBounds(walls, { x: topLeftCorner.x + i, y: topLeftCorner.y }, width, height);
+    // Left-side L walls: rotated 90 degrees counterclockwise from the default orientation.
+    // Top-left corner originally extended right (+x) and up (-y); rotated CCW it now extends up (-y) and left (-x).
     pushWallIfInBounds(walls, { x: topLeftCorner.x, y: topLeftCorner.y - i }, width, height);
+    pushWallIfInBounds(walls, { x: topLeftCorner.x - i, y: topLeftCorner.y }, width, height);
 
     pushWallIfInBounds(walls, { x: topRightCorner.x, y: topRightCorner.y + i }, width, height);
     pushWallIfInBounds(walls, { x: topRightCorner.x + i, y: topRightCorner.y }, width, height);
 
+    // Bottom-left corner originally extended right (+x) and down (+y); rotated CCW it now extends up (-y) and right (+x).
+    pushWallIfInBounds(walls, { x: bottomLeftCorner.x, y: bottomLeftCorner.y - i }, width, height);
     pushWallIfInBounds(walls, { x: bottomLeftCorner.x + i, y: bottomLeftCorner.y }, width, height);
-    pushWallIfInBounds(walls, { x: bottomLeftCorner.x, y: bottomLeftCorner.y + i }, width, height);
 
     pushWallIfInBounds(walls, { x: bottomRightCorner.x, y: bottomRightCorner.y - i }, width, height);
     pushWallIfInBounds(walls, { x: bottomRightCorner.x + i, y: bottomRightCorner.y }, width, height);

@@ -59,16 +59,32 @@ describe('Card Database', () => {
     });
   });
 
+  it('defines Zeus as a legendary custom-art unit with three abilities', () => {
+    const zeus = ALL_UNITS.find((u) => u.id === 'u43');
+
+    expect(zeus).toBeDefined();
+    expect(zeus?.name).toBe('Zeus');
+    expect(zeus?.cost).toBe(10);
+    expect(zeus?.hp).toBe(18);
+    expect(zeus?.atk).toBe(7);
+    expect(zeus?.movement).toBe(4);
+    expect(zeus?.range).toBe(5);
+    expect(zeus?.framework?.cardFrameStyle).toBe('legendary');
+    expect(zeus?.framework?.customImage).toBe('/assets/zeus.png');
+    expect(zeus?.abilities).toHaveLength(3);
+    expect(zeus?.ability).toBe(zeus?.abilities?.[0]);
+  });
+
   it('all sorcery cards have an effect description', () => {
     ALL_SORCERIES.forEach((s) => {
       expect(s.effect).toBeTruthy();
     });
   });
 
-  it('unit costs range from 1 to 8', () => {
+  it('unit costs range from 1 to 10', () => {
     const costs = ALL_UNITS.map((u) => u.cost);
     expect(Math.min(...costs)).toBe(1);
-    expect(Math.max(...costs)).toBeLessThanOrEqual(8);
+    expect(Math.max(...costs)).toBeLessThanOrEqual(10);
   });
 
   it('sorcery costs range from 1 to 6', () => {

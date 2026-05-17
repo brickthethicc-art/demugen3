@@ -5,12 +5,27 @@ import { ArrowRight, Heart, ScrollText, SkipForward, X } from 'lucide-react';
 import { GameBoard } from '../GameBoard.js';
 import { DiscardPile } from '../DiscardPile.js';
 import { MainDeckPile } from '../MainDeckPile.js';
+import { CardFront } from '../CardFront.js';
 import { useGameStore } from '../../store/game-store.js';
 import { useGameActions } from '../../hooks/useGameActions.js';
 import { sendDiscardCard } from '../../network/socket-client.js';
 import { isCommittedPlayerActionLog } from '../../utils/game-log.js';
+import wallpaperImage from '../../../../../wallpaper.avif';
 
 const BOARD_SIZE_PX = 736;
+const MOBILE_HAND_CARD_WIDTH_PX = 78;
+const MOBILE_HAND_CARD_HEIGHT_PX = 118;
+const MOBILE_BENCH_CARD_WIDTH_PX = 78;
+const MOBILE_BENCH_CARD_HEIGHT_PX = 108;
+const MOBILE_BENCH_PREVIEW_WIDTH_PX = 120;
+const MOBILE_BENCH_PREVIEW_HEIGHT_PX = 166;
+const MOBILE_GAME_BACKGROUND_STYLE = {
+  backgroundImage: `url(${wallpaperImage})`,
+  backgroundSize: 'cover',
+  backgroundPosition: 'center',
+  backgroundRepeat: 'no-repeat',
+  backgroundColor: '#050507',
+} as const;
 
 const PHASE_LABELS: Record<string, string> = {
   [TurnPhase.STANDBY]: 'Standby',
@@ -251,7 +266,11 @@ export function MobileGameScreen() {
   const playerLife = currentPlayer?.life ?? 0;
   const openBenchSlots = Math.max(0, RESERVE_UNIT_COUNT - benchUnits.length);
   const summonModeActive = summonModalOpen && isMyTurn && openBenchSlots > 0;
-  const discardModeActive = handLimitModalOpen && isMyTurn && handCards.length > MAX_HAND_SIZE;
+  const requiresPreDrawDiscard =
+    gameState.pendingTurnStartDraw === true &&
+    isMyTurn &&
+    handCards.length === MAX_HAND_SIZE;
+  const discardModeActive = handLimitModalOpen && isMyTurn && (handCards.length > MAX_HAND_SIZE || requiresPreDrawDiscard);
   const controlsDisabled = handLimitModalOpen || standbyModalOpen;
 
   const activeUnit = useMemo(() => {
@@ -461,8 +480,9 @@ export function MobileGameScreen() {
 
   return (
     <div
-      className="h-[100dvh] overflow-hidden bg-mugen-bg text-white"
+      className="h-[100dvh] overflow-hidden text-white"
       style={{
+        ...MOBILE_GAME_BACKGROUND_STYLE,
         paddingTop: 'max(4px, env(safe-area-inset-top))',
         paddingBottom: 'max(4px, env(safe-area-inset-bottom))',
       }}
@@ -600,9 +620,13 @@ export function MobileGameScreen() {
                   <div
                     key={`empty-slot-${index}`}
                     data-bench-slot-index={index}
-                    className="flex h-[74px] items-center justify-center rounded-md border border-dashed border-white/15 bg-white/[0.03] text-[10px] text-gray-600"
+                    className="justify-self-center rounded-md border border-dashed border-white/15 bg-white/[0.03]"
+                    style={{
+                      width: `${MOBILE_BENCH_CARD_WIDTH_PX}px`,
+                      height: `${MOBILE_BENCH_CARD_HEIGHT_PX}px`,
+                    }}
                   >
-                    Empty
+                    <div className="flex h-full w-full items-center justify-center text-[10px] text-gray-600">Empty</div>
                   </div>
                 );
               }
@@ -613,15 +637,21 @@ export function MobileGameScreen() {
                   type="button"
                   data-bench-slot-index={index}
                   onClick={() => setSelectedBenchUnit(unit)}
-                  className={`h-[74px] rounded-md border px-1 py-1 text-left transition-all active:scale-[0.98] ${
+                  className={`justify-self-center overflow-hidden rounded-md border p-0 text-left transition-all active:scale-[0.98] ${
                     canDeploy
                       ? 'border-green-400/50 bg-green-500/10 shadow-[0_0_8px_rgba(34,197,94,0.25)]'
                       : 'border-white/15 bg-white/[0.05]'
                   }`}
+                  style={{
+                    width: `${MOBILE_BENCH_CARD_WIDTH_PX}px`,
+                    height: `${MOBILE_BENCH_CARD_HEIGHT_PX}px`,
+                  }}
                 >
-                  <div className="truncate text-[10px] font-semibold text-white">{unit.name}</div>
-                  <div className="mt-0.5 text-[9px] text-gray-300">HP {unit.hp} • ATK {unit.atk}</div>
-                  <div className="truncate text-[9px] text-gray-400">{unit.ability.name}</div>
+                  <CardFront
+                    card={unit}
+                    width={MOBILE_BENCH_CARD_WIDTH_PX}
+                    height={MOBILE_BENCH_CARD_HEIGHT_PX}
+                  />
                 </button>
               );
             })}
@@ -653,7 +683,11 @@ export function MobileGameScreen() {
                     <div
                       key={`mobile-empty-slot-${index}`}
                       data-hand-slot-index={index}
-                      className="h-[118px] w-[78px] shrink-0 rounded-md border border-dashed border-white/10 bg-white/[0.02]"
+                      className="shrink-0 rounded-md border border-dashed border-white/10 bg-white/[0.02]"
+                      style={{
+                        width: `${MOBILE_HAND_CARD_WIDTH_PX}px`,
+                        height: `${MOBILE_HAND_CARD_HEIGHT_PX}px`,
+                      }}
                     />
                   );
                 }
@@ -674,24 +708,25 @@ export function MobileGameScreen() {
                     data-hand-card-id={card.id}
                     disabled={Boolean(summoningCardId || discardingCardId)}
                     onClick={() => handleCardClick(card)}
-                    className={`h-[118px] w-[78px] shrink-0 rounded-md border p-1 text-left transition ${
+                    className={`shrink-0 overflow-hidden rounded-md border p-0 text-left transition ${
                       discardModeActive
-                        ? 'border-red-400 ring-1 ring-red-400/80 shadow-[0_0_10px_rgba(248,113,113,0.45)]'
+                        ? 'border-red-400 ring-2 ring-red-400/90 shadow-[0_0_14px_rgba(248,113,113,0.7)] animate-pulse'
                         : isSummonableUnit
                           ? 'border-green-400 ring-1 ring-green-400/80 shadow-[0_0_10px_rgba(74,222,128,0.45)]'
                           : isPlayableSorcery
                             ? 'border-cyan-300/45 bg-cyan-300/10'
                             : 'border-white/10 bg-white/[0.04]'
                     } ${(summoningCardId === card.id || discardingCardId === card.id) ? 'opacity-30' : ''}`}
+                    style={{
+                      width: `${MOBILE_HAND_CARD_WIDTH_PX}px`,
+                      height: `${MOBILE_HAND_CARD_HEIGHT_PX}px`,
+                    }}
                   >
-                    <div className="truncate text-[10px] font-semibold text-white">{card.name}</div>
-                    <div className="mt-0.5 text-[9px] text-gray-300">{card.cardType}</div>
-                    <div className="text-[9px] text-gray-300">Cost: {card.cost}</div>
-                    {card.cardType === CardType.UNIT ? (
-                      <div className="text-[9px] text-gray-300">ATK {card.atk} / HP {card.hp}</div>
-                    ) : (
-                      <div className="line-clamp-2 text-[8px] text-gray-400">{card.effect}</div>
-                    )}
+                    <CardFront
+                      card={card}
+                      width={MOBILE_HAND_CARD_WIDTH_PX}
+                      height={MOBILE_HAND_CARD_HEIGHT_PX}
+                    />
                   </button>
                 );
               })}
@@ -734,6 +769,15 @@ export function MobileGameScreen() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-2 text-sm font-semibold text-white">Bench Unit</div>
+
+            <div className="mb-3 flex justify-center">
+              <CardFront
+                card={selectedBenchUnit}
+                width={MOBILE_BENCH_PREVIEW_WIDTH_PX}
+                height={MOBILE_BENCH_PREVIEW_HEIGHT_PX}
+                isHovered
+              />
+            </div>
 
             <CompactUnitStats unit={selectedBenchUnit} hp={selectedBenchUnit.hp} />
 

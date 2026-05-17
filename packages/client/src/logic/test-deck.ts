@@ -1,5 +1,10 @@
 import type { Card } from '@mugen/shared';
-import { CardType, AbilityType } from '@mugen/shared';
+import {
+  CardType,
+  AbilityType,
+  createDefaultCardFramework,
+  DEFAULT_STAT_DISPLAY_ORDER,
+} from '@mugen/shared';
 
 // Create a test 16-card deck for debugging
 export function createTestDeck(): Card[] {
@@ -20,6 +25,8 @@ export function createTestDeck(): Card[] {
       abilityType: AbilityType.DAMAGE,
     },
     cost: 3 + (i % 3),
+    framework: createDefaultCardFramework(),
+    statDisplayOrder: [...DEFAULT_STAT_DISPLAY_ORDER],
   }));
 }
 

@@ -6,6 +6,10 @@ import { GameScene } from '../scenes/GameScene.js';
 
 import { UnitActionMenu } from './UnitActionMenu.js';
 
+const BOARD_CELL_SIZE_PX = 26;
+const BOARD_GRID_SIZE = 23;
+const BOARD_SIZE_PX = BOARD_GRID_SIZE * BOARD_CELL_SIZE_PX;
+
 
 
 export function GameBoard() {
@@ -35,7 +39,7 @@ export function GameBoard() {
     }
     console.log('INITIALIZATION STARTED');
 
-    let initTimeout: NodeJS.Timeout | null = null;
+    let initTimeout: ReturnType<typeof setTimeout> | null = null;
 
     try {
       gameRef.current = new Phaser.Game({
@@ -44,11 +48,11 @@ export function GameBoard() {
 
         parent: containerRef.current,
 
-        width: 23 * 32,
+        width: BOARD_SIZE_PX,
 
-        height: 23 * 32,
+        height: BOARD_SIZE_PX,
 
-        backgroundColor: '#0f0f1a',
+        transparent: true,
 
         scene: [GameScene],
 
@@ -123,7 +127,7 @@ export function GameBoard() {
 
   if (phaserError) {
     return (
-      <div className="rounded-xl shadow-2xl border border-red-500 bg-red-900/30 p-8" style={{ width: '736px', height: '736px' }}>
+      <div className="rounded-xl shadow-2xl border border-red-500 bg-red-900/30 p-8" style={{ width: `${BOARD_SIZE_PX}px`, height: `${BOARD_SIZE_PX}px` }}>
         <h2 className="text-xl font-bold text-red-400 mb-2">Game Board Error</h2>
         <p className="text-gray-300">{phaserError}</p>
       </div>
@@ -131,21 +135,21 @@ export function GameBoard() {
   }
 
   return (
-    <div className="relative">
+    <div className="relative" data-game-board-root="true">
       {/* containerRef div MUST always be rendered so the ref is populated when useEffect fires.
           Previously this div only existed after phaserInitialized=true, causing a deadlock where
           containerRef.current was always null and Phaser could never start. */}
       <div
         ref={containerRef}
-        className="rounded-xl shadow-2xl border border-white/5"
-        style={{ width: '736px', height: '736px' }}
+        className="rounded-xl"
+        style={{ width: `${BOARD_SIZE_PX}px`, height: `${BOARD_SIZE_PX}px` }}
       />
 
       {/* Loading overlay — shown on top while Phaser boots, removed once initialized */}
       {!phaserInitialized && (
         <div
-          className="absolute inset-0 rounded-xl shadow-2xl border border-white/5 bg-mugen-bg flex items-center justify-center"
-          style={{ width: '736px', height: '736px' }}
+          className="absolute inset-0 rounded-xl bg-mugen-bg flex items-center justify-center"
+          style={{ width: `${BOARD_SIZE_PX}px`, height: `${BOARD_SIZE_PX}px` }}
         >
           <div className="text-center">
             <h2 className="text-xl font-bold text-white mb-2">Initializing Game Board...</h2>

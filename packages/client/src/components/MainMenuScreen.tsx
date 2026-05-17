@@ -44,8 +44,8 @@ export function MainMenuScreen() {
                 : 'bg-mugen-surface border-white/10 hover:border-mugen-accent/50'
             }`}
           >
-            {mobileUiMode ? <Monitor size={18} /> : <Smartphone size={18} />}
-            {mobileUiMode ? 'Desktop View Enabled' : 'Mobile Friendly View'}
+            {mobileUiMode ? <Smartphone size={18} /> : <Monitor size={18} />}
+            {mobileUiMode ? 'Mobile Friendly View Enabled' : 'Enable Mobile Friendly View'}
           </button>
 
           <button

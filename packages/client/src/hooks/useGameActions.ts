@@ -26,9 +26,14 @@ export function useGameActions() {
   );
 
   const sendAbility = useCallback(
-    (unitId: string, targetId?: string, targetOwnerId?: string) => {
+    (
+      unitId: string,
+      abilityId?: string,
+      targetId?: string,
+      targetOwnerId?: string,
+    ) => {
       if (!canAct) return;
-      sendIntent({ type: IntentType.USE_ABILITY, unitId, targetId, targetOwnerId });
+      sendIntent({ type: IntentType.USE_ABILITY, unitId, abilityId, targetId, targetOwnerId });
     },
     [canAct]
   );

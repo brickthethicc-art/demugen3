@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { MAX_DECK_SIZE } from '@mugen/shared';
 import { useGameStore } from '../store/game-store.js';
+import { getCardBackStyle } from '../utils/card-back-style.js';
 
 export function MainDeckPile() {
   const mainDeck = useGameStore((state) => state.mainDeck);
@@ -10,10 +11,8 @@ export function MainDeckPile() {
   const topLayerOffset = layerCount > 1 ? deckDepth / (layerCount - 1) : 0;
 
   const portalBackStyle: CSSProperties = {
-    background:
-      'radial-gradient(circle at 50% 48%, rgba(125, 211, 252, 0.42) 0%, rgba(74, 144, 226, 0.22) 22%, rgba(22, 33, 62, 0.95) 62%, rgba(8, 12, 28, 1) 100%)',
-    boxShadow:
-      'inset 0 0 0 2px rgba(148, 197, 255, 0.35), inset 0 0 22px rgba(56, 189, 248, 0.24), 0 6px 16px rgba(2, 6, 23, 0.65)',
+    ...getCardBackStyle(),
+    boxShadow: '0 6px 16px rgba(2, 6, 23, 0.65)',
   };
 
   return (
@@ -37,10 +36,7 @@ export function MainDeckPile() {
               zIndex: layerIndex + 1,
             }}
           >
-            <div className="absolute inset-[9%] rounded-full border border-sky-300/45" />
-            <div className="absolute inset-[22%] rounded-full border border-sky-200/35" />
-            <div className="absolute inset-[32%] rounded-full border border-cyan-200/50" />
-            <div className="absolute left-1/2 top-1/2 h-[64%] w-[64%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-200/10 blur-[2px]" />
+            <div className="absolute inset-0 bg-black/5" />
           </div>
         );
       })}
